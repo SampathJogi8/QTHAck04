@@ -67,7 +67,3 @@ streamlit run app.py
 - Hackathons
 - Engineering demos
 
----
-
-## 📜 License
-MIT License
