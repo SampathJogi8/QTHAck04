@@ -3,20 +3,10 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
-st.set_page_config(page_title="DSP Pro Lab Pro", layout="wide")
+st.set_page_config(page_title="DSP Pro Lab", layout="wide")
 
 # ─────────────────────────────
-# CLEAN UI STYLE
-# ─────────────────────────────
-st.markdown("""
-<style>
-.block {border:1px solid #e5e7eb; padding:12px; border-radius:12px; margin-bottom:12px;}
-h3 {margin-top:10px;}
-</style>
-""", unsafe_allow_html=True)
-
-# ─────────────────────────────
-# HELPERS
+# FUNCTIONS
 # ─────────────────────────────
 def gen_signal(t,f,a,typ,dur):
     if typ=="Sine": return a*np.sin(2*np.pi*f*t)
@@ -58,161 +48,134 @@ def load_wav(file):
     return audio,rate
 
 # ─────────────────────────────
-# ANIMATION
+# SIDEBAR (FIXED)
 # ─────────────────────────────
-def animated_aliasing(t,f,fs):
-    frames=[]
-    for k in np.linspace(0.5*f,2*f,25):
-        sig=np.sin(2*np.pi*k*t)
-        alias=alias_freq(k,fs)
-        alias_sig=np.sin(2*np.pi*alias*t)
+uploaded = st.sidebar.file_uploader("Upload Audio", type=["wav"])
+use_audio = uploaded is not None   # ✅ FIX
 
-        frames.append(go.Frame(
-            data=[go.Scatter(x=t,y=sig),
-                  go.Scatter(x=t,y=alias_sig)],
-            name=str(k)
-        ))
+teach = st.sidebar.toggle("🎓 Teaching Mode", True)
 
-    fig=go.Figure(
-        data=[go.Scatter(x=t,y=np.sin(2*np.pi*f*t)),
-              go.Scatter(x=t,y=np.sin(2*np.pi*f*t))],
-        frames=frames
-    )
+wave_type = st.sidebar.selectbox(
+    "Wave", ["Sine","Square","Triangle","Sawtooth","Chirp"],
+    disabled=use_audio
+)
 
-    fig.update_layout(
-        updatemenus=[{
-            "type":"buttons",
-            "buttons":[{"label":"▶ Play","method":"animate"}]
-        }]
-    )
-    return fig
+freq = st.sidebar.slider("Frequency",1,50,5,disabled=use_audio)
+fs = st.sidebar.slider("Sampling Rate",50,1000,200)
+amp = st.sidebar.slider("Amplitude",0.1,3.0,1.0,disabled=use_audio)
+dur = st.sidebar.slider("Duration",1,5,2,disabled=use_audio)
+
+noise_lvl = st.sidebar.slider("Noise",0.0,2.0,0.0)
+filt = st.sidebar.slider("Filter Window",2,80,10)
 
 # ─────────────────────────────
-# SIDEBAR
+# SIGNAL PIPELINE
 # ─────────────────────────────
-uploaded=st.sidebar.file_uploader("Upload Audio",type=["wav"])
-teach=st.sidebar.toggle("🎓 Teaching Mode",True)
-
-wave=st.sidebar.selectbox("Wave",["Sine","Square","Triangle","Sawtooth","Chirp"],disabled=uploaded)
-freq=st.sidebar.slider("Frequency",1,50,5,disabled=uploaded)
-fs=st.sidebar.slider("Sampling Rate",50,1000,200)
-amp=st.sidebar.slider("Amplitude",0.1,3.0,1.0,disabled=uploaded)
-dur=st.sidebar.slider("Duration",1,5,2,disabled=uploaded)
-
-noise_lvl=st.sidebar.slider("Noise",0.0,2.0,0.0)
-filt=st.sidebar.slider("Filter",2,80,10)
-
-# ─────────────────────────────
-# GLOBAL SIGNAL
-# ─────────────────────────────
-if uploaded:
-    audio,ar=load_wav(uploaded)
-    N=int(fs*2)
-    idx=np.linspace(0,len(audio)-1,N).astype(int)
-    signal=audio[idx]
+if use_audio:
+    audio,ar = load_wav(uploaded)
+    N = int(fs*2)
+    idx = np.linspace(0,len(audio)-1,N).astype(int)
+    signal = audio[idx]
 else:
-    t=np.arange(int(fs*dur))/fs
-    signal=gen_signal(t,freq,amp,wave,dur)
+    N = int(fs*dur)
+    t = np.arange(N)/fs
+    signal = gen_signal(t,freq,amp,wave_type,dur)
 
-t=np.arange(len(signal))/fs
+t = np.arange(len(signal))/fs
 
-noise=np.random.normal(0,noise_lvl,len(signal))
-noisy=signal+noise
-filtered=moving_avg(noisy,filt)
+noise = np.random.normal(0,noise_lvl,len(signal))
+noisy = signal + noise
+filtered = moving_avg(noisy,filt)
 
-freqs,mags,power=compute_fft(noisy,fs)
-dom=freqs[np.argmax(mags)]
+freqs,mags,power = compute_fft(noisy,fs)
+dom = float(freqs[np.argmax(mags)])
 
 # ─────────────────────────────
 # TABS
 # ─────────────────────────────
-tabs=st.tabs(["Oscilloscope","FFT","Phase","Filter","Waterfall","Lissajous","Audio"])
+tabs = st.tabs([
+    "Oscilloscope","FFT","Phase","Filter",
+    "Waterfall","Lissajous","Audio"
+])
 
 # ───────── OSCILLOSCOPE ─────────
 with tabs[0]:
     st.markdown("### 01 Continuous Signal")
-    st.plotly_chart(go.Figure(go.Scatter(x=t,y=signal)),key="c1")
+    st.plotly_chart(go.Figure(go.Scatter(x=t,y=signal)), key="osc1", width="stretch")
 
     st.markdown("### 02 Sampled Signal")
-    st.plotly_chart(go.Figure(go.Scatter(x=t,y=signal,mode="markers")),key="c2")
+    st.plotly_chart(go.Figure(go.Scatter(x=t,y=signal,mode="markers")), key="osc2", width="stretch")
 
-    st.markdown("### 03 Aliasing Animation")
-    st.plotly_chart(animated_aliasing(t,dom,fs),key="c3")
-
-    if teach:
-        st.info("Aliasing occurs when Fs < 2f")
+    st.markdown("### 03 Aliasing")
+    alias = alias_freq(dom,fs)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=t,y=signal,name="Original"))
+    fig.add_trace(go.Scatter(x=t,y=np.sin(2*np.pi*alias*t),name="Alias"))
+    st.plotly_chart(fig, key="osc3", width="stretch")
 
 # ───────── FFT ─────────
 with tabs[1]:
     st.markdown("### Magnitude Spectrum")
-    st.plotly_chart(go.Figure(go.Scatter(x=freqs,y=mags)),key="fft1")
+    st.plotly_chart(go.Figure(go.Scatter(x=freqs,y=mags)), key="fft1", width="stretch")
 
     st.markdown("### Power Spectrum")
-    st.plotly_chart(go.Figure(go.Scatter(x=freqs,y=power)),key="fft2")
-
-    if teach:
-        st.info("Peaks = dominant frequencies")
+    st.plotly_chart(go.Figure(go.Scatter(x=freqs,y=power)), key="fft2", width="stretch")
 
 # ───────── PHASE ─────────
 with tabs[2]:
+    lag = 5
     st.markdown("### 01 Phase Portrait")
-    lag=5
-    st.plotly_chart(go.Figure(go.Scatter(x=noisy[:-lag],y=noisy[lag:],mode="lines")),key="ph1")
+    st.plotly_chart(go.Figure(go.Scatter(x=noisy[:-lag],y=noisy[lag:],mode="lines")),
+                    key="ph1", width="stretch")
 
-    st.markdown("### 02 Autocorrelation R[k]")
-    ac=np.correlate(noisy,noisy,mode="full")
-    st.plotly_chart(go.Figure(go.Scatter(y=ac)),key="ph2")
+    st.markdown("### 02 Autocorrelation")
+    ac = np.correlate(noisy,noisy,mode="full")
+    st.plotly_chart(go.Figure(go.Scatter(y=ac)), key="ph2", width="stretch")
 
 # ───────── FILTER ─────────
 with tabs[3]:
     st.markdown("### 01 Original")
-    st.plotly_chart(go.Figure(go.Scatter(x=t,y=signal)),key="f1")
+    st.plotly_chart(go.Figure(go.Scatter(x=t,y=signal)), key="f1", width="stretch")
 
     st.markdown("### 02 Noisy")
-    st.plotly_chart(go.Figure(go.Scatter(x=t,y=noisy)),key="f2")
+    st.plotly_chart(go.Figure(go.Scatter(x=t,y=noisy)), key="f2", width="stretch")
 
     st.markdown("### 03 Filtered")
-    st.plotly_chart(go.Figure(go.Scatter(x=t,y=filtered)),key="f3")
+    st.plotly_chart(go.Figure(go.Scatter(x=t,y=filtered)), key="f3", width="stretch")
 
     st.markdown("### 04 Comparison")
-    fig=go.Figure()
+    fig = go.Figure()
     fig.add_trace(go.Scatter(x=t,y=signal,name="Original"))
     fig.add_trace(go.Scatter(x=t,y=noisy,name="Noisy"))
     fig.add_trace(go.Scatter(x=t,y=filtered,name="Filtered"))
-    st.plotly_chart(fig,key="f4")
+    st.plotly_chart(fig, key="f4", width="stretch")
 
 # ───────── WATERFALL ─────────
 with tabs[4]:
-    st.markdown("### Short-Time FFT Spectrogram")
-    frame=256;hop=128
-    spec=[np.abs(np.fft.rfft(noisy[i:i+frame])) for i in range(0,len(noisy)-frame,hop)]
+    st.markdown("### STFT Spectrogram")
+    frame,hop = 256,128
+    spec = [np.abs(np.fft.rfft(noisy[i:i+frame]))
+            for i in range(0,len(noisy)-frame,hop)]
     if len(spec)>0:
-        st.plotly_chart(go.Figure(go.Heatmap(z=np.array(spec).T)),key="wf")
+        st.plotly_chart(go.Figure(go.Heatmap(z=np.array(spec).T)),
+                        key="wf", width="stretch")
 
 # ───────── LISSAJOUS ─────────
 with tabs[5]:
-    f2=st.slider("Y-axis Freq",1,50,3)
-    phase=st.slider("Phase Offset",0,360,0)
+    f2 = st.slider("Y-axis Freq",1,50,3)
+    phase = st.slider("Phase Offset",0,360,0)
 
     st.markdown("### 01 Lissajous Figure")
-    tt=np.linspace(0,2,5000)
+    tt = np.linspace(0,2,5000)
     st.plotly_chart(go.Figure(go.Scatter(
         x=np.sin(2*np.pi*dom*tt),
         y=np.sin(2*np.pi*f2*tt+np.radians(phase)),
-        mode="lines")),key="liss")
-
-    st.markdown("""
-Ratio | Shape  
-1:1 | Circle  
-1:2 | Figure-8  
-2:3 | Pretzel  
-3:4 | Butterfly  
-""")
+        mode="lines")), key="liss", width="stretch")
 
 # ───────── AUDIO ─────────
 with tabs[6]:
-    if uploaded:
-        st.audio(signal,sample_rate=fs)
-        st.metric("Detected Frequency",f"{dom:.2f} Hz")
+    if use_audio:
+        st.audio(signal, sample_rate=fs)
+        st.metric("Detected Frequency", f"{dom:.2f} Hz")
     else:
-        st.info("Upload audio")
+        st.info("Upload WAV file")
