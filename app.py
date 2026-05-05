@@ -665,7 +665,8 @@ if "audio_data" in st.session_state:
     ts           = np.arange(0.0, duration_eff, 1.0 / fs)
     ts_idx       = np.clip((ts * audio_rate).astype(int), 0, len(raw_audio) - 1)
     sampled      = raw_audio[ts_idx]
-    fq, mq, _, _ = compute_fft(signal[:min(N, 8192)], float(audio_rate))
+    chunk_len = min(len(raw_audio), audio_rate * 5)   # up to 5 s of raw audio
+    fq, mq, _, _ = compute_fft(raw_audio[:chunk_len], float(audio_rate))
     freq_eff     = max(1, int(round(float(fq[int(np.argmax(mq))]))))
     source_label = f"🎵 {st.session_state['audio_name']}"
 else:
