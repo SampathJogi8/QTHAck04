@@ -1,15 +1,26 @@
-# DSP PRO LAB — ULTIMATE VERSION 🔥
+# DSP PRO LAB — FINAL STABLE VERSION ✅
 
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
 
+# =========================
+# ✅ SAFE PDF IMPORT
+# =========================
+try:
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+# =========================
+# ⚡ CONFIG
+# =========================
 st.set_page_config(layout="wide", page_title="DSP Ultimate Lab")
 
 # =========================
-# ⚡ PERFORMANCE CACHE
+# ⚡ CACHE
 # =========================
 @st.cache_data(show_spinner=False)
 def gen_signal(t, f, a):
@@ -24,7 +35,7 @@ def compute_fft(sig, fs):
     return freqs, mags
 
 # =========================
-# 🎛️ SIDEBAR
+# 🎛️ CONTROLS
 # =========================
 st.sidebar.title("Controls")
 
@@ -36,7 +47,7 @@ noise_level = st.sidebar.slider("Noise", 0.0, 1.0, 0.0)
 teach_mode = st.sidebar.toggle("🎓 Teaching Mode", True)
 
 # =========================
-# 🧠 SIGNAL GENERATION
+# 🧠 SIGNAL
 # =========================
 N = 2000
 duration = 2
@@ -79,33 +90,43 @@ fundamental = max(mags[dom_idx], 1e-12)
 thd_pct = (harm_rms / fundamental) * 100
 
 # =========================
-# 📈 OSCILLOSCOPE
+# 🖥️ UI
 # =========================
 st.title("🔬 DSP Ultimate Lab")
 
 col1, col2 = st.columns(2)
 
+# -------------------------
+# Continuous Signal
+# -------------------------
 with col1:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=t, y=signal, name="Continuous"))
 
     if teach_mode:
-        fig.add_annotation(text="Continuous Signal",
-                           x=0.1, y=1,
-                           showarrow=False)
+        fig.add_annotation(
+            text="Continuous Signal",
+            x=0.1, y=1,
+            showarrow=False
+        )
 
     st.plotly_chart(fig, use_container_width=True)
 
+# -------------------------
+# Sampled Signal
+# -------------------------
 with col2:
     fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=ts, y=sampled,
-                              mode="markers",
-                              name="Samples"))
+    fig2.add_trace(go.Scatter(
+        x=ts, y=sampled,
+        mode="markers",
+        name="Samples"
+    ))
 
     st.plotly_chart(fig2, use_container_width=True)
 
 # =========================
-# 🔥 TRUE SINC RECONSTRUCTION
+# 🔥 SINC RECONSTRUCTION
 # =========================
 st.subheader("🔥 True Reconstruction (Sinc)")
 
@@ -159,7 +180,7 @@ else:
     st.success("✅ No Aliasing")
 
 # =========================
-# 📄 PDF EXPORT
+# 📄 PDF EXPORT (SAFE)
 # =========================
 def generate_pdf():
     doc = SimpleDocTemplate("/mnt/data/dsp_report.pdf")
@@ -177,7 +198,11 @@ def generate_pdf():
     doc.build(content)
     return "/mnt/data/dsp_report.pdf"
 
-if st.button("📄 Export PDF"):
-    path = generate_pdf()
-    with open(path, "rb") as f:
-        st.download_button("Download Report", f, file_name="DSP_Report.pdf")
+# Show export only if library exists
+if REPORTLAB_AVAILABLE:
+    if st.button("📄 Export PDF"):
+        path = generate_pdf()
+        with open(path, "rb") as f:
+            st.download_button("Download Report", f, file_name="DSP_Report.pdf")
+else:
+    st.warning("⚠ Install 'reportlab' to enable PDF export")
