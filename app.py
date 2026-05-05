@@ -1,6 +1,7 @@
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -27,24 +28,19 @@ class DSPState:
         self.N = len(signal)
         self.t = np.arange(self.N) / fs
 
-        # Noise
         rng = np.random.default_rng(42)
         self.noise = rng.normal(0, noise_level, self.N)
         self.noisy = self.signal + self.noise
 
-        # Filter
         self.filtered = self._filter()
 
-        # FFT
         self.freqs, self.mags = self._fft(self.noisy)
         self.dom_freq = self.freqs[np.argmax(self.mags)]
 
-        # Nyquist
         self.nyquist = fs / 2
-        self.alias_freq = self._alias()
+        self.alias_freq = abs(self.dom_freq - fs * np.round(self.dom_freq / fs))
         self.is_alias = self.dom_freq > self.nyquist
 
-        # SNR
         self.snr = self._snr()
 
     def _filter(self):
@@ -59,9 +55,6 @@ class DSPState:
         mags = np.abs(spec)
         return freqs, mags
 
-    def _alias(self):
-        return abs(self.dom_freq - self.fs * np.round(self.dom_freq / self.fs))
-
     def _snr(self):
         signal_power = np.mean(self.signal**2)
         noise_power = np.mean(self.noise**2)
@@ -75,21 +68,15 @@ class DSPState:
 def gen_signal(t, f, a, wtype, dur):
     if wtype == "Sine":
         return a * np.sin(2 * np.pi * f * t)
-
     if wtype == "Square":
         return a * np.sign(np.sin(2 * np.pi * f * t))
-
     if wtype == "Triangle":
         return a * (2/np.pi) * np.arcsin(np.sin(2*np.pi*f*t))
-
     if wtype == "Sawtooth":
         return a * (2*((t*f)%1)-1)
-
     if wtype == "Chirp":
-        f0 = 0
         k = f / dur
-        return a * np.sin(2*np.pi*(f0*t + 0.5*k*t**2))
-
+        return a * np.sin(2*np.pi*(0*t + 0.5*k*t**2))
     return np.zeros_like(t)
 
 # ─────────────────────────────────────────────
@@ -107,59 +94,48 @@ noise_level = st.sidebar.slider("Noise Level", 0.0, 2.0, 0.0)
 filter_win = st.sidebar.slider("Filter Window", 1, 50, 5)
 
 # ─────────────────────────────────────────────
-# SIGNAL PIPELINE
+# PIPELINE
 # ─────────────────────────────────────────────
 N = int(fs * duration)
 t = np.arange(N) / fs
-
 signal = gen_signal(t, freq, amp, wave, duration)
-
 state = DSPState(signal, fs, noise_level, filter_win)
 
 # ─────────────────────────────────────────────
-# HEADER METRICS
+# METRICS
 # ─────────────────────────────────────────────
-col1, col2, col3, col4, col5 = st.columns(5)
-
-col1.metric("Dominant Freq", f"{state.dom_freq:.2f} Hz")
-col2.metric("Sampling Rate", f"{fs} Hz")
-col3.metric("Nyquist Limit", f"{state.nyquist:.2f} Hz")
-col4.metric("Alias Freq", f"{state.alias_freq:.2f} Hz")
-col5.metric("SNR", f"{state.snr:.2f} dB")
+cols = st.columns(5)
+cols[0].metric("Dominant Freq", f"{state.dom_freq:.2f} Hz")
+cols[1].metric("Sampling Rate", f"{fs} Hz")
+cols[2].metric("Nyquist", f"{state.nyquist:.2f} Hz")
+cols[3].metric("Alias", f"{state.alias_freq:.2f} Hz")
+cols[4].metric("SNR", f"{state.snr:.2f} dB")
 
 if state.is_alias:
-    st.error(f"Aliasing occurs → Observed {state.alias_freq:.2f} Hz")
+    st.error("Aliasing detected")
 else:
-    st.success("Nyquist satisfied — No aliasing")
+    st.success("No aliasing")
 
 # ─────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["Oscilloscope","FFT","Filter"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Oscilloscope",
+    "FFT",
+    "Phase",
+    "Filter",
+    "Waterfall",
+    "Lissajous"
+])
 
 # ─────────────────────────────────────────────
 # OSCILLOSCOPE
 # ─────────────────────────────────────────────
 with tab1:
-    step = max(1, len(state.t)//2000)
-
     fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=state.t[::step], y=state.signal[::step],
-        name="Original", line=dict(color=COLORS["signal"])
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=state.t[::step], y=state.noisy[::step],
-        name="Noisy", line=dict(color=COLORS["noise"], width=1)
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=state.t[::step], y=state.filtered[::step],
-        name="Filtered", line=dict(color=COLORS["filtered"])
-    ))
-
+    fig.add_trace(go.Scatter(x=state.t, y=state.signal, name="Original"))
+    fig.add_trace(go.Scatter(x=state.t, y=state.noisy, name="Noisy"))
+    fig.add_trace(go.Scatter(x=state.t, y=state.filtered, name="Filtered"))
     st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
@@ -167,37 +143,67 @@ with tab1:
 # ─────────────────────────────────────────────
 with tab2:
     fig = go.Figure()
+    fig.add_trace(go.Scatter(x=state.freqs, y=state.mags))
+    fig.add_vline(x=state.dom_freq)
+    fig.add_vline(x=state.alias_freq, line_dash="dot")
+    st.plotly_chart(fig, use_container_width=True)
 
-    fig.add_trace(go.Scatter(
-        x=state.freqs, y=state.mags,
-        line=dict(color=COLORS["filtered"])
-    ))
-
-    fig.add_vline(x=state.dom_freq, line_dash="dash")
-    fig.add_vline(x=state.alias_freq, line_dash="dot", line_color="orange")
-
+# ─────────────────────────────────────────────
+# PHASE
+# ─────────────────────────────────────────────
+with tab3:
+    lag = st.slider("Lag", 1, 50, 5)
+    x = state.noisy[:-lag]
+    y = state.noisy[lag:]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines"))
     st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
 # FILTER
 # ─────────────────────────────────────────────
-with tab3:
+with tab4:
     fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=state.t, y=state.noisy,
-        name="Noisy", line=dict(color=COLORS["noise"])
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=state.t, y=state.filtered,
-        name="Filtered", line=dict(color=COLORS["filtered"], width=2)
-    ))
-
+    fig.add_trace(go.Scatter(x=state.t, y=state.noisy, name="Noisy"))
+    fig.add_trace(go.Scatter(x=state.t, y=state.filtered, name="Filtered"))
     st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
-# AUDIO OUTPUT (BONUS)
+# WATERFALL
+# ─────────────────────────────────────────────
+with tab5:
+    frame = 256
+    hop = 128
+    spec = []
+    for i in range(0, len(state.noisy)-frame, hop):
+        chunk = state.noisy[i:i+frame] * np.hanning(frame)
+        fft = np.abs(np.fft.rfft(chunk))
+        spec.append(fft)
+    spec = np.array(spec).T
+
+    fig = go.Figure(go.Heatmap(
+        z=20*np.log10(spec+1e-9),
+        colorscale="Plasma"
+    ))
+    st.plotly_chart(fig, use_container_width=True)
+
+# ─────────────────────────────────────────────
+# LISSAJOUS
+# ─────────────────────────────────────────────
+with tab6:
+    f2 = st.slider("Y Frequency", 1, 50, 3)
+    phase = st.slider("Phase", 0, 360, 0)
+
+    t = np.linspace(0, 2, 5000)
+    x = np.sin(2*np.pi*state.dom_freq*t)
+    y = np.sin(2*np.pi*f2*t + np.radians(phase))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines"))
+    st.plotly_chart(fig, use_container_width=True)
+
+# ─────────────────────────────────────────────
+# AUDIO OUTPUT
 # ─────────────────────────────────────────────
 st.subheader("Audio Output")
 st.audio(state.filtered, sample_rate=fs)
