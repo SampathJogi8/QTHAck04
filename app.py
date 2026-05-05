@@ -50,7 +50,7 @@ section[data-testid="stSidebar"] > div {
 .dsp-header {
     background: linear-gradient(135deg, #0d1117 0%, #111827 60%, #0d1117 100%);
     border: 1px solid #1e2631;
-    border-left: 4px solid #a855f7;
+    border-left: 4px solid #06b6d4;
     border-radius: 12px;
     padding: 20px 28px;
     margin-bottom: 24px;
@@ -90,7 +90,7 @@ section[data-testid="stSidebar"] > div {
 }
 
 .dsp-header-badge span {
-    color: #a855f7;
+    color: #06b6d4;
     font-weight: 600;
 }
 
@@ -120,7 +120,7 @@ section[data-testid="stSidebar"] > div {
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, #a855f7, #6366f1);
+    background: linear-gradient(90deg, #06b6d4, #6366f1);
     opacity: 0;
     transition: opacity 0.2s;
 }
@@ -229,7 +229,7 @@ section[data-testid="stSidebar"] > div {
 .section-num {
     background: #1a1f2e;
     border: 1px solid #2d3748;
-    color: #a855f7;
+    color: #06b6d4;
     width: 24px;
     height: 24px;
     border-radius: 6px;
@@ -285,8 +285,8 @@ section[data-testid="stSidebar"] .sidebar-section-title {
 }
 
 .stTabs [aria-selected="true"] {
-    color: #a855f7 !important;
-    border-bottom-color: #a855f7 !important;
+    color: #06b6d4 !important;
+    border-bottom-color: #06b6d4 !important;
     background: transparent;
 }
 
@@ -467,7 +467,7 @@ def load_wav(file_obj):
 COLORS = {
     "green":   "#10b981",
     "blue":    "#3b82f6",
-    "purple":  "#a855f7",
+    "purple":  "#06b6d4",
     "orange":  "#f97316",
     "yellow":  "#f59e0b",
     "red":     "#ef4444",
@@ -1134,9 +1134,6 @@ with tab_water:
                 title=dict(text="dB", font=dict(color="#94a3b8", size=12)),
                 ticksuffix=" dB",
                 tickfont=dict(color="#94a3b8", size=10, family="JetBrains Mono"),
-                bgcolor="rgba(13,17,23,0.0)",
-                bordercolor=COLORS["border"],
-                borderwidth=1,
             ),
         ))
         fig.update_layout(
@@ -1205,10 +1202,7 @@ Non-integer ratios → quasi-periodic open paths.
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=x_l, y=y_l, mode="lines",
-            line=dict(
-                color=COLORS["purple"], width=1.5,
-                colorscale=None,
-            ),
+            line=dict(color=COLORS["cyan"], width=1.5),
             name=f"{freq_eff} Hz × {freq2} Hz  φ = {phase}°",
         ))
         apply_theme(
@@ -1327,7 +1321,7 @@ st.markdown(
     "<div style='display:flex;align-items:center;justify-content:space-between;"
     "flex-wrap:wrap;gap:8px;padding:4px 0'>"
     "<span style='font-size:11px;color:#334155'>"
-    "DSP Pro Lab &nbsp;·&nbsp; Team <strong style='color:#a855f7'>8vaults</strong>"
+    "DSP Pro Lab &nbsp;·&nbsp; Team <strong style='color:#06b6d4'>8vaults</strong>"
     " &nbsp;·&nbsp; Problem Statement 18 — Sampling &amp; Aliasing"
     " &nbsp;·&nbsp; Nyquist–Shannon Theorem"
     "</span>"
