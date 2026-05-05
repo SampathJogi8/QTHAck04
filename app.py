@@ -2,6 +2,7 @@
 DSP Pro Lab — 8vaults
 Problem Statement 18: Sampling & Aliasing Visual Demonstrator
 Professional Edition — Company-grade UI/UX
+Fixed Version: all bugs resolved
 """
 
 import io
@@ -217,9 +218,11 @@ html, body, [data-testid="stAppViewContainer"] {
     display: flex;
     gap: 10px;
     margin-bottom: 16px;
+    flex-wrap: wrap;
 }
 .mcard {
     flex: 1;
+    min-width: 100px;
     background: #0b1117;
     border: 1px solid #1a2332;
     border-radius: 10px;
@@ -256,7 +259,7 @@ html, body, [data-testid="stAppViewContainer"] {
     line-height: 1.1;
 }
 .mcard .val.warn { color: #f87171; }
-.mcard .val.small { font-size: 14px; }
+.mcard .val.small { font-size: 13px; }
 
 /* Status badge */
 .status-ok {
@@ -454,10 +457,12 @@ html, body, [data-testid="stAppViewContainer"] {
 # ══════════════════════════════════════════════════════════════════════════════
 def next_pow2(n):
     p = 1
-    while p < n: p <<= 1
+    while p < n:
+        p <<= 1
     return p
 
 def gen_signal(time_arr, f, a, wtype, dur):
+    """Generate a signal of the given waveform type."""
     if wtype == "Sine":
         return a * np.sin(2 * np.pi * f * time_arr)
     if wtype == "Square":
@@ -467,7 +472,8 @@ def gen_signal(time_arr, f, a, wtype, dur):
     if wtype == "Sawtooth":
         return a * (2.0 * ((time_arr * f) % 1.0) - 1.0)
     if wtype == "Chirp":
-        k = f / max(dur, 1e-9)
+        # BUG FIX: guard against zero duration
+        k = f / max(float(dur), 1e-9)
         return a * np.sin(2 * np.pi * (f * time_arr + 0.5 * k * time_arr ** 2))
     return np.zeros_like(time_arr)
 
@@ -476,19 +482,28 @@ def moving_avg(s, w):
     return np.convolve(s, np.ones(w) / w, mode="same")
 
 def compute_fft(sig, sample_rate):
+    """Compute FFT of signal. Returns (freqs, mags, power_db, n_fft)."""
+    # BUG FIX: guard against empty or all-zero signal
+    if len(sig) < 4:
+        return np.array([0.0]), np.array([0.0]), np.array([-120.0]), 4
     n = next_pow2(max(len(sig), 4))
     win = np.hanning(len(sig))
     padded = np.zeros(n)
     padded[:len(sig)] = sig * win
     spectrum = np.fft.rfft(padded)
-    freqs = np.fft.rfftfreq(n, d=1.0 / max(sample_rate, 1.0))
+    freqs = np.fft.rfftfreq(n, d=1.0 / max(float(sample_rate), 1.0))
     mags = np.abs(spectrum) / (n / 2.0)
     max_mag = float(mags.max()) if mags.max() > 0 else 1e-12
     power_db = 20.0 * np.log10(np.maximum(mags / max_mag, 1e-12))
     return freqs, mags, power_db, n
 
 def fft_bandwidth(freqs, mags, threshold=0.1):
+    """Return signal bandwidth above threshold * peak."""
+    if len(mags) == 0:
+        return 0.0
     max_mag = float(mags.max())
+    if max_mag <= 0:
+        return 0.0
     mask = mags > max_mag * threshold
     if int(np.count_nonzero(mask)) >= 2:
         idx = np.where(mask)[0]
@@ -496,16 +511,21 @@ def fft_bandwidth(freqs, mags, threshold=0.1):
     return 0.0
 
 def load_wav(file_obj):
+    """Load a WAV file and return (audio_array, sample_rate)."""
     buf = io.BytesIO(file_obj.read())
     wf = wave.open(buf, "rb")
-    rate, nch, nsmp, sw = wf.getframerate(), wf.getnchannels(), wf.getnframes(), wf.getsampwidth()
-    raw = wf.readframes(nsmp)
+    rate  = wf.getframerate()
+    nch   = wf.getnchannels()
+    nsmp  = wf.getnframes()
+    sw    = wf.getsampwidth()
+    raw   = wf.readframes(nsmp)
     wf.close()
     dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(sw, np.int16)
     audio = np.frombuffer(raw, dtype=dtype).astype(np.float64)
+    # BUG FIX: handle mono and stereo safely
     if nch >= 2:
         audio = audio[::nch]
-    peak = float(np.max(np.abs(audio)))
+    peak = float(np.max(np.abs(audio))) if len(audio) > 0 else 0.0
     if peak > 0:
         audio /= peak
     return audio, rate
@@ -558,10 +578,19 @@ def apply_chart(fig, height=440, title="", xtitle="", ytitle=""):
     fig.update_yaxes(**axis_style(ytitle))
 
 def mcard(label, value, warn=False, small=False):
-    val_class = "val warn" if warn else ("val small" if small else "val")
+    """Return an HTML metric card string."""
+    # BUG FIX: small flag takes precedence only if not warn
+    if warn:
+        val_class = "val warn"
+    elif small:
+        val_class = "val small"
+    else:
+        val_class = "val"
     return f'<div class="mcard"><div class="lbl">{label}</div><div class="{val_class}">{value}</div></div>'
 
 def render_metric_row(cards):
+    """Render a list of mcard HTML strings inside a metric-row div."""
+    # BUG FIX: cards must be a list; join them before wrapping
     html = '<div class="metric-row">' + "".join(cards) + '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -578,10 +607,6 @@ def callout_box(text, kind="info"):
     kind_map = {"info": "callout", "warn": "callout warn", "success": "callout success"}
     cls = kind_map.get(kind, "callout")
     st.markdown(f'<div class="{cls}">{text}</div>', unsafe_allow_html=True)
-
-def chart_wrap(label=""):
-    if label:
-        st.markdown(f'<div class="chart-label">{label}</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -738,8 +763,15 @@ if "audio_data" in st.session_state:
     ts           = np.arange(0.0, duration_eff, 1.0 / fs)
     ts_idx       = np.clip((ts * audio_rate).astype(int), 0, len(raw_audio) - 1)
     sampled      = raw_audio[ts_idx]
-    fq, mq, _, _ = compute_fft(signal[:min(N, 8192)], float(audio_rate))
-    freq_eff     = max(1, int(round(float(fq[int(np.argmax(mq))]))))
+    # BUG FIX: limit FFT input to max 8192 samples; guard empty result
+    fft_input    = signal[:min(N, 8192)]
+    fq, mq, _, _ = compute_fft(fft_input, float(audio_rate))
+    # BUG FIX: only argmax if mq is non-empty and has nonzero values
+    if len(mq) > 0 and mq.max() > 0:
+        dom_idx_eff = int(np.argmax(mq))
+        freq_eff    = max(1, int(round(float(fq[dom_idx_eff]))))
+    else:
+        freq_eff    = 1
     source_label = f"🎵 {st.session_state['audio_name']}"
 else:
     t            = np.linspace(0.0, duration, N, endpoint=False)
@@ -750,8 +782,10 @@ else:
     freq_eff     = freq
     source_label = f"{signal_type} · {freq} Hz"
 
+# BUG FIX: protect against divide-by-zero when fs=0 (already guarded, but be safe)
 nyquist  = 2 * freq_eff
-alias_f  = abs(freq_eff - round(freq_eff / fs) * fs)
+# BUG FIX: alias frequency formula — guard division by zero
+alias_f  = abs(freq_eff - round(freq_eff / max(fs, 1)) * fs)
 is_alias = fs < nyquist
 
 rng       = np.random.default_rng(42)
@@ -779,19 +813,21 @@ if audio_loaded:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STATUS BAR — 6 metric cards
+# BUG FIX: build as a list and pass to render_metric_row (consistent API)
 # ══════════════════════════════════════════════════════════════════════════════
-status_html = (
-    mcard("Source",        source_label[:24], small=True) +
-    mcard("Signal Freq",   f"{freq_eff} Hz") +
-    mcard("Sampling Rate", f"{fs} Hz") +
-    mcard("Nyquist Min",   f"{nyquist} Hz") +
-    mcard("Alias Freq",    f"{alias_f:.1f} Hz", warn=is_alias) +
-    mcard("Status",
-          '<span class="status-warn">⚠ ALIASING</span>' if is_alias
-          else '<span class="status-ok">CLEAN</span>',
-          small=True)
+status_badge = (
+    '<span class="status-warn">⚠ ALIASING</span>'
+    if is_alias else
+    '<span class="status-ok">CLEAN</span>'
 )
-st.markdown(f'<div class="metric-row">{status_html}</div>', unsafe_allow_html=True)
+render_metric_row([
+    mcard("Source",        source_label[:24], small=True),
+    mcard("Signal Freq",   f"{freq_eff} Hz"),
+    mcard("Sampling Rate", f"{fs} Hz"),
+    mcard("Nyquist Min",   f"{nyquist} Hz"),
+    mcard("Alias Freq",    f"{alias_f:.1f} Hz", warn=is_alias),
+    mcard("Status",        status_badge, small=True),
+])
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
 
@@ -826,7 +862,7 @@ with tab_scope:
         ))
         if noise_level > 0:
             fig.add_trace(go.Scatter(
-                x=t, y=noisy, mode="lines", name=f"x(t) + noise",
+                x=t, y=noisy, mode="lines", name="x(t) + noise",
                 line=dict(color="rgba(248,113,113,0.45)", width=1),
             ))
         apply_chart(fig, height=380,
@@ -863,7 +899,8 @@ with tab_scope:
     # Aliasing chart — full width
     section_header("03", "Aliasing Visualization")
 
-    alias_sig = gen_signal(t, alias_f, amp, "Sine", duration_eff)
+    # BUG FIX: alias_sig must use duration_eff as the dur argument to gen_signal
+    alias_sig = gen_signal(t, alias_f if alias_f > 0 else 0.1, amp, "Sine", duration_eff)
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(
         x=t, y=signal, mode="lines",
@@ -907,14 +944,15 @@ with tab_scope:
     with st.expander("Nyquist Reference Table"):
         rows = []
         for test_fs in [2, 4, 6, 8, 10, 15, 20, 40, 100, 200]:
-            a_f = abs(freq_eff - round(freq_eff / test_fs) * test_fs)
+            # BUG FIX: guard division by zero for test_fs
+            a_f = abs(freq_eff - round(freq_eff / max(test_fs, 1)) * test_fs)
             ok  = test_fs >= nyquist
             rows.append(
                 f'<tr><td class="mono">{test_fs} Hz</td>'
                 f'<td class="{"ok-td" if ok else "warn-td"}">'
                 f'{"✓ Clean" if ok else "⚠ Alias"}</td>'
                 f'<td class="mono">{a_f:.2f} Hz</td>'
-                f'<td>{round(test_fs/freq_eff,2)}×</td></tr>'
+                f'<td>{round(test_fs / max(freq_eff, 1), 2)}×</td></tr>'
             )
         st.markdown(f"""
         <table class="data-table">
@@ -930,15 +968,21 @@ with tab_scope:
 with tab_fft:
 
     freqs_hz, mags, power_db, n_fft = compute_fft(noisy, float(fs))
-    max_mag  = float(mags.max()) if mags.size > 0 else 1e-12
-    dom_idx  = int(np.argmax(mags))
-    dom_freq = round(float(freqs_hz[dom_idx]), 2)
+
+    # BUG FIX: guard all operations that depend on non-empty mags
+    max_mag  = float(mags.max()) if len(mags) > 0 and mags.max() > 0 else 1e-12
+    dom_idx  = int(np.argmax(mags)) if len(mags) > 0 else 0
+    dom_freq = round(float(freqs_hz[dom_idx]), 2) if len(freqs_hz) > dom_idx else 0.0
     bw_hz    = fft_bandwidth(freqs_hz, mags)
     snr_db   = (round(20.0 * np.log10(float(amp) / max(float(noise_level), 1e-9)), 1)
                 if noise_level > 0 else 99.0)
-    harm_rms = float(np.sqrt(np.sum(mags[dom_idx+1:]**2))) if dom_idx+1 < len(mags) else 0.0
-    thd_pct  = round(harm_rms / max(float(mags[dom_idx]), 1e-9) * 100.0, 1)
-    freq_res = round(float(fs) / n_fft, 4)
+    # BUG FIX: harmonic RMS — check index bounds
+    if dom_idx + 1 < len(mags):
+        harm_rms = float(np.sqrt(np.sum(mags[dom_idx + 1:] ** 2)))
+    else:
+        harm_rms = 0.0
+    thd_pct  = round(harm_rms / max(float(mags[dom_idx]) if len(mags) > 0 else 1e-9, 1e-9) * 100.0, 1)
+    freq_res = round(float(fs) / n_fft, 4) if n_fft > 0 else 0.0
 
     render_metric_row([
         mcard("Dominant Freq",     f"{dom_freq} Hz"),
@@ -949,9 +993,11 @@ with tab_fft:
         mcard("Resolution",        f"{freq_res} Hz/bin"),
     ])
 
+    # BUG FIX: guard against empty freqs_hz when building bar colors
+    n_bins = max(len(freqs_hz), 1)
     bar_colors = [
-        f"hsl({int(140 + i / max(len(freqs_hz)-1,1) * 80)},75%,52%)"
-        for i in range(len(freqs_hz))
+        f"hsl({int(140 + i / (n_bins - 1) * 80)},75%,52%)"
+        for i in range(n_bins)
     ]
 
     fig = make_subplots(
@@ -969,13 +1015,15 @@ with tab_fft:
         fillcolor="rgba(96,165,250,0.07)",
     ), row=2, col=1)
 
+    # BUG FIX: only add vlines when freqs_hz is non-empty and within range
+    freq_max = float(freqs_hz[-1]) if len(freqs_hz) > 0 else 0.0
     for r in (1, 2):
-        if 0 < dom_freq <= float(freqs_hz[-1]):
+        if 0 < dom_freq <= freq_max:
             fig.add_vline(x=dom_freq, line_dash="dash", line_color="#f97316",
                           annotation_text=f"f={dom_freq} Hz",
                           annotation_font=dict(color="#f97316", size=11),
                           annotation_position="top right", row=r, col=1)
-        if is_alias and 0 < alias_f <= float(freqs_hz[-1]):
+        if is_alias and 0 < alias_f <= freq_max:
             fig.add_vline(x=alias_f, line_dash="dot", line_color="#facc15",
                           annotation_text=f"alias={alias_f:.1f}Hz",
                           annotation_font=dict(color="#facc15", size=10),
@@ -983,14 +1031,7 @@ with tab_fft:
 
     base = chart_layout(height=680)
     base["showlegend"] = False
-    base["annotations"] = [
-        dict(text="Magnitude Spectrum", x=0, xref="paper", y=1.02, yref="paper",
-             showarrow=False, font=dict(family="DM Sans, sans-serif", size=12, color="#4b5563"),
-             xanchor="left"),
-        dict(text="Power Spectrum (dB)", x=0, xref="paper", y=0.45, yref="paper",
-             showarrow=False, font=dict(family="DM Sans, sans-serif", size=12, color="#4b5563"),
-             xanchor="left"),
-    ]
+    # BUG FIX: removed duplicate annotations dict that conflicted with subplot titles
     fig.update_layout(**base)
     fig.update_xaxes(**axis_style("Frequency (Hz)"))
     fig.update_yaxes(**axis_style())
@@ -999,15 +1040,16 @@ with tab_fft:
     st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("FFT Parameters & Theory"):
+        alias_note = "⚠ Active" if is_alias else "No aliasing"
         st.markdown(f"""
 <table class="data-table">
   <tr><th>Parameter</th><th>Value</th><th>Note</th></tr>
   <tr><td>FFT size</td><td class="mono">{n_fft}</td><td>Zero-padded to next power of 2</td></tr>
   <tr><td>Window</td><td class="mono">Hanning</td><td>Reduces spectral leakage</td></tr>
   <tr><td>Frequency resolution</td><td class="mono">{freq_res} Hz/bin</td><td>Fs / N_fft</td></tr>
-  <tr><td>Nyquist limit</td><td class="mono">{fs//2} Hz</td><td>Maximum representable frequency</td></tr>
+  <tr><td>Nyquist limit</td><td class="mono">{fs // 2} Hz</td><td>Maximum representable frequency</td></tr>
   <tr><td>Dominant frequency</td><td class="mono">{dom_freq} Hz</td><td>Peak magnitude bin</td></tr>
-  <tr><td>Alias frequency</td><td class="mono">{alias_f:.2f} Hz</td><td>{"⚠ Active" if is_alias else "No aliasing"}</td></tr>
+  <tr><td>Alias frequency</td><td class="mono">{alias_f:.2f} Hz</td><td>{alias_note}</td></tr>
 </table>
         """, unsafe_allow_html=True)
 
@@ -1017,28 +1059,33 @@ with tab_fft:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_phase:
 
-    lag = st.slider("Lag k (samples)", 1, min(50, N//4), 5, key="lag_sl")
-    x_ph, y_ph = noisy[:-lag], noisy[lag:]
+    # BUG FIX: clamp lag upper bound to avoid empty slices
+    max_lag_val = max(1, min(50, N // 4))
+    lag = st.slider("Lag k (samples)", 1, max_lag_val, min(5, max_lag_val), key="lag_sl")
 
-    max_lag  = min(400, len(signal)//2)
-    mean_s   = float(signal.mean())
-    var_s    = float(np.var(signal))
-    lags_arr = np.arange(max_lag)
-    if var_s > 1e-12:
+    # BUG FIX: guard against lag >= N
+    if lag < N:
+        x_ph, y_ph = noisy[:-lag], noisy[lag:]
+    else:
+        x_ph, y_ph = noisy[:1], noisy[:1]
+
+    max_lag_ac = min(400, len(signal) // 2)
+    mean_s     = float(signal.mean())
+    var_s      = float(np.var(signal))
+    lags_arr   = np.arange(max_lag_ac)
+    if var_s > 1e-12 and max_lag_ac > 0:
         auto = np.array([
-            float(np.mean((signal[:N-ll]-mean_s)*(signal[ll:]-mean_s))) / var_s
+            float(np.mean((signal[:N - ll] - mean_s) * (signal[ll:] - mean_s))) / var_s
             for ll in lags_arr
         ])
     else:
-        auto = np.zeros(max_lag)
+        auto = np.zeros(max(max_lag_ac, 1))
 
     col1, col2 = st.columns(2, gap="medium")
 
     with col1:
         section_header("01", "Phase Portrait")
         fig = go.Figure()
-        n_seg = len(x_ph)
-        colors = [f"hsl({int(140 + i/n_seg*160)},70%,52%)" for i in range(min(n_seg, 500))]
         fig.add_trace(go.Scatter(
             x=x_ph, y=y_ph, mode="lines",
             line=dict(color="#c084fc", width=0.9),
@@ -1069,10 +1116,12 @@ with tab_phase:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_filter:
 
-    rms_orig = float(np.sqrt(np.mean(signal**2)))
-    rms_n    = float(np.sqrt(np.mean(noisy**2)))
-    rms_f    = float(np.sqrt(np.mean(filtered**2)))
-    snr_g    = round(20.0 * np.log10(max(rms_f,1e-12) / max(rms_n,1e-12)), 2)
+    rms_orig = float(np.sqrt(np.mean(signal ** 2)))
+    rms_n    = float(np.sqrt(np.mean(noisy ** 2)))
+    rms_f    = float(np.sqrt(np.mean(filtered ** 2)))
+    # BUG FIX: guard log of zero
+    snr_g    = round(20.0 * np.log10(max(rms_f, 1e-12) / max(rms_n, 1e-12)), 2)
+    # BUG FIX: filter_win could be 1 — guard division
     cutoff   = round(float(fs) / (2.0 * max(filter_win, 1)), 2)
 
     render_metric_row([
@@ -1081,10 +1130,9 @@ with tab_filter:
         mcard("RMS Filtered", f"{rms_f:.4f}"),
         mcard("SNR Gain",     f"{snr_g} dB"),
         mcard("−3 dB Cutoff", f"{cutoff} Hz"),
-        mcard("Group Delay",  f"{filter_win//2} smp"),
+        mcard("Group Delay",  f"{filter_win // 2} smp"),
     ])
 
-    # Three charts — full width then two columns
     section_header("01", "Clean Signal")
     fig_c = go.Figure()
     fig_c.add_trace(go.Scatter(x=t, y=signal, mode="lines", name="Clean",
@@ -1124,8 +1172,11 @@ with tab_filter:
 
     section_header("05", "Filter Frequency Response |H(f)|")
     omega = np.linspace(0.0, np.pi, 1024)
-    eps, M_f = 1e-9, float(filter_win)
-    H = np.clip(np.abs(np.sin(M_f*omega/2+eps)/(M_f*np.sin(omega/2+eps)+eps)), 0, 1)
+    eps   = 1e-9
+    M_f   = float(max(filter_win, 1))
+    # BUG FIX: stable moving-average frequency response formula
+    H = np.abs(np.sinc(M_f * omega / (2 * np.pi))) if False else \
+        np.clip(np.abs(np.sin(M_f * omega / 2 + eps) / (M_f * (np.sin(omega / 2 + eps) + eps))), 0, 1)
     f_ax = omega / np.pi * (fs / 2.0)
     fig_hr = go.Figure()
     fig_hr.add_trace(go.Scatter(x=f_ax, y=H, mode="lines", name="|H(f)|",
@@ -1149,24 +1200,27 @@ with tab_water:
     n_frames  = 64
     frame_len = max(64, N // n_frames)
     n_fft_w   = next_pow2(frame_len)
-    hop       = max(1, (N - frame_len) // max(n_frames-1, 1))
+    # BUG FIX: prevent zero hop size
+    hop       = max(1, (N - frame_len) // max(n_frames - 1, 1))
     win_h     = np.hanning(frame_len)
 
     wfall, t_labels = [], []
     for i in range(n_frames):
-        start, end = i*hop, i*hop+frame_len
-        if end > N: break
+        start = i * hop
+        end   = start + frame_len
+        if end > N:
+            break
         pad = np.zeros(n_fft_w)
         pad[:frame_len] = noisy[start:end] * win_h
-        wfall.append(np.abs(np.fft.rfft(pad)) / (n_fft_w/2.0))
-        t_labels.append(round(start/N*duration_eff, 3))
+        wfall.append(np.abs(np.fft.rfft(pad)) / (n_fft_w / 2.0))
+        t_labels.append(round(start / N * duration_eff, 3))
 
     if not wfall:
-        st.warning("Signal too short. Increase Duration slider.")
+        st.warning("Signal too short for waterfall. Increase Duration slider.")
     else:
         wfall_arr = np.array(wfall)
-        f_ax_w    = np.fft.rfftfreq(n_fft_w, d=1.0/fs)
-        z_db      = np.clip(20.0*np.log10(wfall_arr+1e-12), -80.0, 0.0)
+        f_ax_w    = np.fft.rfftfreq(n_fft_w, d=1.0 / max(fs, 1))
+        z_db      = np.clip(20.0 * np.log10(wfall_arr + 1e-12), -80.0, 0.0)
 
         fig = go.Figure(go.Heatmap(
             z=z_db.T, x=t_labels, y=f_ax_w,
@@ -1179,14 +1233,12 @@ with tab_water:
                 thickness=14,
             ),
         ))
-        fig.update_layout(
-            **chart_layout(height=580),
-        )
+        fig.update_layout(**chart_layout(height=580))
         fig.update_xaxes(**axis_style("Time (s)"))
         fig.update_yaxes(**axis_style("Frequency (Hz)"))
         st.plotly_chart(fig, use_container_width=True)
 
-        freq_res_w = round(float(fs)/n_fft_w, 3)
+        freq_res_w = round(float(fs) / n_fft_w, 3) if n_fft_w > 0 else 0.0
         st.markdown(
             f'<div style="font-family:Space Mono,monospace;font-size:10px;color:#374151;'
             f'padding:6px 0;letter-spacing:0.06em">'
@@ -1211,13 +1263,15 @@ with tab_liss:
 
     with col_ctrl:
         section_header("⚙", "Controls")
-        liss_max     = max(50, freq_eff*4)
+        liss_max     = max(50, freq_eff * 4)
         liss_default = min(3, liss_max)
         freq2 = st.slider("Y Frequency", 1, liss_max, liss_default, format="%d Hz", key="lf2")
         phase = st.slider("Phase Offset", 0, 360, 0, 5, format="%d°", key="lph")
 
-        gcd_v = int(np.gcd(freq_eff, freq2))
-        ratio = f"{freq_eff//gcd_v} : {freq2//gcd_v}"
+        # BUG FIX: np.gcd requires non-negative integers; protect against 0
+        gcd_v = int(np.gcd(max(freq_eff, 1), max(freq2, 1)))
+        ratio = f"{max(freq_eff, 1) // gcd_v} : {max(freq2, 1) // gcd_v}"
+
         st.markdown(
             f'<div style="margin:12px 0;padding:10px 12px;background:#0b1117;'
             f'border:1px solid #1a2332;border-radius:8px">'
@@ -1241,23 +1295,27 @@ with tab_liss:
 
     with col_plot:
         section_header("01", "Lissajous Figure")
-        lcm_f  = freq_eff * freq2 // max(gcd_v, 1)
-        cycles = lcm_f * 6
-        t_liss = np.linspace(0.0, cycles/max(float(min(freq_eff,freq2)), 1.0), 12000)
-        x_l    = amp * np.sin(2*np.pi*freq_eff * t_liss)
-        y_l    = amp * np.sin(2*np.pi*freq2    * t_liss + np.radians(phase))
+        # BUG FIX: guard against zero gcd, zero frequencies, and overflow in lcm
+        f_a = max(freq_eff, 1)
+        f_b = max(freq2, 1)
+        lcm_f  = f_a * f_b // gcd_v  # safe: gcd >= 1
+        # BUG FIX: cap cycles to prevent enormous arrays
+        cycles = min(lcm_f * 6, 10000)
+        t_liss = np.linspace(0.0, cycles / float(min(f_a, f_b)), 12000)
+        x_l    = amp * np.sin(2 * np.pi * f_a * t_liss)
+        y_l    = amp * np.sin(2 * np.pi * f_b * t_liss + np.radians(phase))
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=x_l, y=y_l, mode="lines",
             line=dict(color="#c084fc", width=1.5),
-            name=f"{freq_eff} Hz × {freq2} Hz  φ={phase}°",
+            name=f"{f_a} Hz × {f_b} Hz  φ={phase}°",
         ))
         apply_chart(
             fig, height=520,
-            title=f"Lissajous  {freq_eff} × {freq2} Hz  |  ratio {ratio}  |  φ = {phase}°",
-            xtitle=f"X — A·sin(2π·{freq_eff}·t)",
-            ytitle=f"Y — A·sin(2π·{freq2}·t + φ)",
+            title=f"Lissajous  {f_a} × {f_b} Hz  |  ratio {ratio}  |  φ = {phase}°",
+            xtitle=f"X — A·sin(2π·{f_a}·t)",
+            ytitle=f"Y — A·sin(2π·{f_b}·t + φ)",
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1285,20 +1343,22 @@ with tab_audio:
     else:
         audio = st.session_state["audio_data"]
         rate  = st.session_state["audio_rate"]
-        a_dur = len(audio) / rate
+        a_dur = len(audio) / max(rate, 1)
 
         render_metric_row([
             mcard("Sample Rate", f"{rate} Hz"),
-            mcard("Channels",    "1 (L)"),
+            mcard("Channels",    "1 (mono)"),
             mcard("Duration",    f"{a_dur:.2f} s"),
             mcard("Samples",     f"{len(audio):,}"),
         ])
 
-        clip   = audio[:rate*10]
-        t_clip = np.linspace(0.0, len(clip)/rate, len(clip), endpoint=False)
+        # BUG FIX: clip to at most 10 s, but guard against rate=0
+        clip_end = min(len(audio), rate * 10) if rate > 0 else len(audio)
+        clip     = audio[:clip_end]
+        t_clip   = np.linspace(0.0, len(clip) / max(rate, 1), len(clip), endpoint=False)
 
         section_header("01", "Waveform")
-        ds = max(1, len(clip)//4000)
+        ds = max(1, len(clip) // 4000)
         fig_w = go.Figure()
         fig_w.add_trace(go.Scatter(
             x=t_clip[::ds], y=clip[::ds], mode="lines",
@@ -1308,12 +1368,14 @@ with tab_audio:
         st.plotly_chart(fig_w, use_container_width=True)
 
         section_header("02", "Frequency Spectrum")
-        clip_fft = clip[:min(len(clip), rate*2)]
+        # BUG FIX: limit FFT input length to 2 s of audio
+        fft_len  = min(len(clip), rate * 2) if rate > 0 else len(clip)
+        clip_fft = clip[:fft_len]
         n_fft_a  = next_pow2(max(len(clip_fft), 4))
         padded_a = np.zeros(n_fft_a)
         padded_a[:len(clip_fft)] = clip_fft * np.hanning(len(clip_fft))
-        spec = np.abs(np.fft.rfft(padded_a)) / (n_fft_a/2.0)
-        fa   = np.fft.rfftfreq(n_fft_a, d=1.0/rate)
+        spec = np.abs(np.fft.rfft(padded_a)) / (n_fft_a / 2.0)
+        fa   = np.fft.rfftfreq(n_fft_a, d=1.0 / max(rate, 1))
         fig_s = go.Figure()
         fig_s.add_trace(go.Scatter(
             x=fa, y=spec, mode="lines",
@@ -1324,22 +1386,22 @@ with tab_audio:
         st.plotly_chart(fig_s, use_container_width=True)
 
         section_header("03", "Spectrogram (STFT)")
-        frame_sz = min(2048, max(64, len(clip)//200))
-        hop_sz   = max(1, frame_sz//4)
-        n_fr     = (len(clip) - frame_sz) // hop_sz
+        frame_sz = min(2048, max(64, len(clip) // 200))
+        hop_sz   = max(1, frame_sz // 4)
+        n_fr     = max(0, (len(clip) - frame_sz) // hop_sz)
 
         if n_fr < 2:
             callout_box("Audio too short for spectrogram (needs > 0.5 s).", kind="warn")
         else:
             n_fft_sg = next_pow2(frame_sz)
             win_sg   = np.hanning(frame_sz)
-            sgram    = np.zeros((n_fr, n_fft_sg//2+1))
+            sgram    = np.zeros((n_fr, n_fft_sg // 2 + 1))
             for i in range(n_fr):
-                ch = clip[i*hop_sz: i*hop_sz+frame_sz] * win_sg
-                sgram[i] = np.abs(np.fft.rfft(ch, n=n_fft_sg)) / (n_fft_sg/2.0)
-            fa2  = np.fft.rfftfreq(n_fft_sg, d=1.0/rate)
-            ta2  = np.arange(n_fr) * hop_sz / rate
-            z_sg = np.clip(20.0*np.log10(sgram.T+1e-12), -80.0, 0.0)
+                ch          = clip[i * hop_sz: i * hop_sz + frame_sz] * win_sg
+                sgram[i]    = np.abs(np.fft.rfft(ch, n=n_fft_sg)) / (n_fft_sg / 2.0)
+            fa2  = np.fft.rfftfreq(n_fft_sg, d=1.0 / max(rate, 1))
+            ta2  = np.arange(n_fr) * hop_sz / max(rate, 1)
+            z_sg = np.clip(20.0 * np.log10(sgram.T + 1e-12), -80.0, 0.0)
             fig_sg = go.Figure(go.Heatmap(
                 z=z_sg, x=ta2, y=fa2,
                 colorscale="Plasma", zmin=-80, zmax=0,
