@@ -175,19 +175,7 @@ def load_wav(file_obj):
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("### 🎛️ Signal Generator")
-    signal_type = st.selectbox("Waveform", ["Sine", "Square", "Triangle", "Sawtooth", "Chirp"])
-    freq        = st.slider("Frequency (Hz)",     1,  50,  5)
-    fs_raw      = st.slider("Sampling Rate (Hz)", 2, 200, 40)
-    amp         = st.slider("Amplitude",        0.1, 3.0, 1.0, 0.1)
-    duration    = st.slider("Duration (s)",       1,   5,   2)
-
-    st.markdown("---")
-    st.markdown("### 🔊 Noise & Filter")
-    noise_level = st.slider("Noise Level",       0.0, 2.0, 0.0, 0.1)
-    filter_win  = st.slider("Filter Window (n)",   2,  80,  10)
-
-    st.markdown("---")
+    # ── Audio upload FIRST so we know whether to disable synth controls ────
     st.markdown("### 📂 Audio Input *(global)*")
     st.caption("Upload a WAV — it becomes the signal source for ALL modules.")
     uploaded_file = st.file_uploader("WAV file", type=["wav"], label_visibility="collapsed")
@@ -215,6 +203,38 @@ with st.sidebar:
             f"{st.session_state['audio_rate']} Hz · {a_dur_sb:.1f} s\n\n"
             f"All modules using this audio."
         )
+
+    st.markdown("---")
+
+    # ── Signal Generator — disabled (greyed out) when audio is active ─────
+    st.markdown("### 🎛️ Signal Generator")
+    if audio_loaded:
+        st.info(
+            "⚠️ **Audio mode active.**\n\n"
+            "Waveform, Frequency, Amplitude and Duration controls are **overridden** "
+            "by the uploaded WAV file.\n\n"
+            "Remove the WAV to use the synthesiser.",
+            icon=None,
+        )
+        # Read-only defaults — values won't be used for signal generation
+        signal_type = st.selectbox("Waveform *(inactive)*",  ["Sine", "Square", "Triangle", "Sawtooth", "Chirp"], disabled=True)
+        freq        = st.slider("Frequency (Hz) *(inactive)*",     1,  50,  5, disabled=True)
+        amp         = st.slider("Amplitude *(inactive)*",        0.1, 3.0, 1.0, 0.1, disabled=True)
+        duration    = st.slider("Duration (s) *(inactive)*",       1,   5,   2, disabled=True)
+        # Sampling rate IS still active — user can still change how the audio is resampled
+        st.markdown("**Sampling Rate** — still active (controls resampling of audio):")
+        fs_raw = st.slider("Sampling Rate (Hz)", 2, 200, 40)
+    else:
+        signal_type = st.selectbox("Waveform", ["Sine", "Square", "Triangle", "Sawtooth", "Chirp"])
+        freq        = st.slider("Frequency (Hz)",     1,  50,  5)
+        fs_raw      = st.slider("Sampling Rate (Hz)", 2, 200, 40)
+        amp         = st.slider("Amplitude",        0.1, 3.0, 1.0, 0.1)
+        duration    = st.slider("Duration (s)",       1,   5,   2)
+
+    st.markdown("---")
+    st.markdown("### 🔊 Noise & Filter")
+    noise_level = st.slider("Noise Level",       0.0, 2.0, 0.0, 0.1)
+    filter_win  = st.slider("Filter Window (n)",   2,  80,  10)
 
     st.markdown("---")
     st.caption("DSP Pro Lab · 8vaults · PS-18")
@@ -265,11 +285,12 @@ filtered  = moving_avg(noisy, filter_win)
 if "audio_data" in st.session_state:
     a_dur = len(st.session_state["audio_data"]) / st.session_state["audio_rate"]
     st.markdown(
-        f'<div class="audio-banner">🎵 &nbsp;<b>Audio mode</b> — '
+        f'<div class="audio-banner">🎵 &nbsp;<b>Audio mode active</b> — '
         f'<b>{st.session_state["audio_name"]}</b> '
-        f'({st.session_state["audio_rate"]} Hz · {a_dur:.1f} s) is the active signal source '
-        f'across all modules.  Dominant freq: <b>{freq_eff} Hz</b> · '
-        f'Nyquist min: <b>{nyquist} Hz</b></div>',
+        f'({st.session_state["audio_rate"]} Hz · {a_dur:.1f} s). '
+        f'Dominant freq: <b>{freq_eff} Hz</b> · Nyquist min: <b>{nyquist} Hz</b> · '
+        f'<span style="color:#fbbf24">⚠ Waveform / Frequency / Amplitude / Duration sliders are overridden by this file. '
+        f'Only <b>Sampling Rate</b>, <b>Noise</b> and <b>Filter</b> controls are active.</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -663,7 +684,10 @@ with tab_liss:
 
     with col_ctrl:
         st.markdown("#### Controls")
-        freq2 = st.slider("Y-axis Freq (Hz)", 1, 50, 3, key="liss_freq2")
+        # Adapt Y-freq slider max to actual signal freq so ratios always make sense
+        liss_max = max(50, freq_eff * 4)
+        liss_default = min(3, liss_max)
+        freq2 = st.slider("Y-axis Freq (Hz)", 1, liss_max, liss_default, key="liss_freq2")
         phase = st.slider("Phase Offset (°)", 0, 360, 0, 5, key="liss_phase")
         gcd_v = np.gcd(freq_eff, freq2)
         ratio = f"{freq_eff // gcd_v} : {freq2 // gcd_v}"
