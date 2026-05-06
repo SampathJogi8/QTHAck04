@@ -1,7 +1,7 @@
 """
 DSP Pro Lab — MIT 6.003 Style  |  Team: 8vaults
 Problem Statement 18: Sampling & Aliasing Visual Demonstrator
-v4 — Industry-grade UI/UX overhaul
+v7 — FIXED: proper light/dark mode for ALL plots and UI elements
 """
 
 import io
@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# ── Page config (MUST be first Streamlit call) ────────────────────────────────
 st.set_page_config(
     page_title="DSP Pro Lab — 8vaults",
     layout="wide",
@@ -20,381 +20,362 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global CSS — Design System ─────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# THEME — sidebar toggle (Streamlit cannot read OS theme in Python)
+# ══════════════════════════════════════════════════════════════════════════════
+if "dark_mode" not in st.session_state:
+    st.session_state["dark_mode"] = False
+
+# We read the toggle AFTER the sidebar block below, but we initialise it here
+# so the rest of the script can reference it immediately.
+# The actual widget is rendered inside the sidebar section.
+
+
+def _theme():
+    """Return a dict of all colour tokens based on current dark_mode state."""
+    dark = st.session_state["dark_mode"]
+    if dark:
+        return dict(
+            dark=True,
+            # Plot backgrounds
+            PBG="#111827",
+            PPBG="#0d1220",
+            # Text / tick
+            PTXT="#e2e8f0",
+            PTICK="#94a3b8",
+            # Grid / zero / lines / legend
+            PGRID="rgba(148,163,184,0.10)",
+            PZERO="rgba(99,179,237,0.30)",
+            PLINE="rgba(148,163,184,0.18)",
+            PLEG="rgba(17,24,39,0.92)",
+            # Colourscales
+            HEAT="Plasma",
+            SURF="Plasma",
+            # Fill alphas (stronger in dark)
+            FA=0.12,
+        )
+    else:
+        return dict(
+            dark=False,
+            PBG="#ffffff",
+            PPBG="#f8fafc",
+            PTXT="#1e3a5f",
+            PTICK="#64748b",
+            PGRID="rgba(100,116,139,0.12)",
+            PZERO="rgba(37,99,235,0.20)",
+            PLINE="rgba(100,116,139,0.22)",
+            PLEG="rgba(255,255,255,0.94)",
+            HEAT="Blues",
+            SURF="Viridis",
+            FA=0.07,
+        )
+
+
+# Signal palette — same in both modes (vibrant, accessible)
+_C = {
+    "cont":  "#3b82f6",
+    "samp":  "#f97316",
+    "alias": "#ef4444",
+    "noisy": "#f87171",
+    "filt":  "#06b6d4",
+    "phase": "#818cf8",
+    "auto":  "#a78bfa",
+    "power": "#0ea5e9",
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CSS — adaptive light / dark via CSS custom properties
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-/* ── Base & Typography ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=DM+Sans:wght@300;400;600;800&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+/* ── Tokens ─────────────────────────────────────────────── */
+:root {
+  --bg-page:    #f2f4f8;
+  --bg-card:    #ffffff;
+  --bg-sidebar: #f8faff;
+  --bg-input:   #f0f3fa;
+  --txt-p:      #0f172a;
+  --txt-s:      #475569;
+  --txt-m:      #94a3b8;
+  --accent:     #2563eb;
+  --accent-sub: rgba(37,99,235,0.08);
+  --bdr:        rgba(148,163,184,0.25);
+  --bdr-s:      rgba(148,163,184,0.45);
+  --sh-sm:      0 1px 4px rgba(0,0,0,0.06),0 0 0 1px rgba(0,0,0,0.04);
+  --sh-md:      0 4px 24px rgba(37,99,235,0.10),0 1px 4px rgba(0,0,0,0.06);
+  --sh-lg:      0 16px 48px rgba(37,99,235,0.14),0 4px 12px rgba(0,0,0,0.08);
+  --ok-bg:#dcfce7; --ok-txt:#166534; --ok-bdr:#86efac;
+  --wn-bg:#fef2f2; --wn-txt:#991b1b; --wn-bdr:#fca5a5;
+  --ease:cubic-bezier(0.25,0.46,0.45,0.94);
+  --spring:cubic-bezier(0.34,1.56,0.64,1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-page:    #0a0e1a;
+    --bg-card:    #111827;
+    --bg-sidebar: #0d1220;
+    --bg-input:   #1e2d45;
+    --txt-p:      #f1f5f9;
+    --txt-s:      #94a3b8;
+    --txt-m:      #64748b;
+    --accent-sub: rgba(37,99,235,0.14);
+    --bdr:        rgba(148,163,184,0.12);
+    --bdr-s:      rgba(148,163,184,0.22);
+    --sh-sm:      0 1px 4px rgba(0,0,0,0.4);
+    --sh-md:      0 4px 24px rgba(37,99,235,0.20);
+    --sh-lg:      0 16px 48px rgba(37,99,235,0.24),0 4px 12px rgba(0,0,0,0.4);
+    --ok-bg:rgba(16,185,129,0.12); --ok-txt:#34d399; --ok-bdr:rgba(16,185,129,0.3);
+    --wn-bg:rgba(239,68,68,0.10);  --wn-txt:#f87171; --wn-bdr:rgba(239,68,68,0.25);
+  }
 }
 
-/* ── Background ── */
-.stApp {
-    background: #080c12;
+/* ── Global reset ───────────────────────────────────────── */
+html,body,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] * {
+  font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  -webkit-font-smoothing:antialiased;
+  color:var(--txt-p);
+  box-sizing:border-box;
 }
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="block-container"]   { background:var(--bg-page) !important; }
 
-/* ── Sidebar ── */
-section[data-testid="stSidebar"] {
-    background: #0d1117 !important;
-    border-right: 1px solid #1e2631 !important;
-    padding-top: 0 !important;
-}
+/* ── Sidebar ────────────────────────────────────────────── */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"]>div     { background:var(--bg-sidebar) !important; border-right:1px solid var(--bdr) !important; }
+[data-testid="stSidebar"] *       { color:var(--txt-p) !important; }
 
-section[data-testid="stSidebar"] > div {
-    padding-top: 1.5rem !important;
-}
+/* ── Text ───────────────────────────────────────────────── */
+.stMarkdown,.stMarkdown p,.stMarkdown li,.stMarkdown td,
+.stMarkdown th,p,span,li,td,th,
+.element-container p              { color:var(--txt-p) !important; }
+h1,h2,h3,h4,h5,h6,
+[data-testid="stHeading"]         { color:var(--txt-p) !important; }
 
-/* ── Header ── */
+/* ── Widget labels ──────────────────────────────────────── */
+label,.stSlider label,.stSelectbox label,
+.stFileUploader label,
+[data-testid="stSidebar"] label   { color:var(--txt-p) !important; }
+[data-testid="stSlider"] *,[data-testid="stSlider"] span { color:var(--txt-p) !important; }
+[data-testid="stSelectbox"] *,div[data-baseweb="select"] * { color:var(--txt-p) !important; }
+
+/* ── Tabs ───────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab"]      { color:var(--txt-s) !important; font-size:12px; font-weight:600; letter-spacing:.03em; padding:8px 14px; transition:color 150ms var(--ease); }
+.stTabs [data-baseweb="tab"][aria-selected="true"] { color:#2563eb !important; }
+.stTabs [data-baseweb="tab-list"] { background:var(--bg-card) !important; border-radius:10px; padding:4px; border:1px solid var(--bdr); }
+
+/* ── Expander ───────────────────────────────────────────── */
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary * { color:var(--txt-p) !important; }
+[data-testid="stExpander"]>div    { background:var(--bg-card) !important; }
+
+/* ── Alerts ─────────────────────────────────────────────── */
+[data-testid="stAlert"],[data-testid="stAlert"] *,
+.stInfo,.stSuccess,.stError,.stWarning { color:var(--txt-p) !important; }
+
+/* ── Captions ───────────────────────────────────────────── */
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] *,
+small,.stCaption                  { color:var(--txt-m) !important; }
+
+/* ── File uploader ──────────────────────────────────────── */
+[data-testid="stFileUploader"] *,
+[data-testid="stFileUploaderDropzone"] * { color:var(--txt-p) !important; }
+
+/* ── Tables / Code ──────────────────────────────────────── */
+table,thead,tbody,tr,td,th        { color:var(--txt-p) !important; }
+code,pre,.stCode                  { color:var(--txt-p) !important; background:var(--bg-input) !important; font-family:'IBM Plex Mono',monospace; }
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar               { width:6px; height:6px; }
+::-webkit-scrollbar-track         { background:transparent; }
+::-webkit-scrollbar-thumb         { background:var(--bdr-s); border-radius:999px; }
+hr                                { border-color:var(--bdr) !important; }
+
+/* ════════════════════════════════════════════════════════
+   CUSTOM COMPONENTS
+   ════════════════════════════════════════════════════════ */
+
+/* ── Hero header ────────────────────────────────────────── */
 .dsp-header {
-    background: linear-gradient(135deg, #0d1117 0%, #111827 60%, #0d1117 100%);
-    border: 1px solid #1e2631;
-    border-left: 4px solid #06b6d4;
-    border-radius: 12px;
-    padding: 20px 28px;
-    margin-bottom: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
+  position:relative; overflow:hidden;
+  background:linear-gradient(135deg,#0f2557 0%,#1d4ed8 55%,#312e81 100%);
+  padding:28px 36px; border-radius:16px; margin-bottom:24px;
+  box-shadow:var(--sh-lg);
+  animation:heroIn .7s var(--ease) both;
+}
+@keyframes heroIn { from{opacity:0;transform:translateY(-14px) scale(.98)} to{opacity:1;transform:translateY(0) scale(1)} }
+.dsp-header::before {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(ellipse 60% 80% at 10% 50%,rgba(99,179,237,.18) 0%,transparent 60%),
+             radial-gradient(ellipse 40% 60% at 80% 20%,rgba(167,139,250,.18) 0%,transparent 60%);
+}
+.dsp-header::after {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+.dsp-header-inner { position:relative; z-index:1; }
+.dsp-header h1    { margin:0 0 5px; font-size:27px; font-weight:800; letter-spacing:-.02em; color:#fff !important; }
+.dsp-header p     { margin:0; opacity:.80; font-size:13px; color:#fff !important; }
+.dsp-header .pill {
+  display:inline-block; margin-top:12px;
+  background:rgba(255,255,255,.12); backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.20); border-radius:999px;
+  padding:3px 14px; font-size:11px; font-weight:600; color:#dbeafe !important; letter-spacing:.06em;
 }
 
-.dsp-header-left h1 {
-    color: #f1f5f9;
-    margin: 0 0 4px 0;
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    font-family: 'Inter', sans-serif !important;
-}
-
-.dsp-header-left p {
-    color: #64748b;
-    margin: 0;
-    font-size: 12.5px;
-    font-weight: 400;
-    letter-spacing: 0.01em;
-}
-
-.dsp-header-badge {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-size: 11px;
-    color: #64748b;
-    font-family: 'JetBrains Mono', monospace;
-    white-space: nowrap;
-}
-
-.dsp-header-badge span {
-    color: #06b6d4;
-    font-weight: 600;
-}
-
-/* ── Metric Cards ── */
-.metric-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 10px;
-    margin-bottom: 20px;
-}
-
+/* ── Metric card ────────────────────────────────────────── */
 .mcard {
-    background: #0d1117;
-    border: 1px solid #1e2631;
-    border-radius: 10px;
-    padding: 14px 16px;
-    text-align: center;
-    transition: border-color 0.2s, transform 0.15s;
-    position: relative;
-    overflow: hidden;
+  background:var(--bg-card); border:1px solid var(--bdr); border-radius:12px;
+  padding:14px 16px; text-align:center; margin-bottom:10px;
+  box-shadow:var(--sh-sm);
+  animation:cardIn .5s var(--ease) both;
+  transition:border-color 280ms var(--ease),box-shadow 280ms var(--ease),transform 280ms var(--spring);
+  cursor:default;
 }
+.mcard:hover { border-color:#2563eb; box-shadow:0 0 0 3px var(--accent-sub),var(--sh-md); transform:translateY(-2px); }
+@keyframes cardIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+.mcard .val  { font-size:15px; font-weight:700; color:var(--txt-p) !important; font-family:'IBM Plex Mono',monospace; letter-spacing:-.01em; }
+.mcard .lbl  { font-size:9px; color:var(--txt-m) !important; text-transform:uppercase; letter-spacing:.10em; margin-bottom:5px; font-weight:600; }
 
-.mcard::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, #06b6d4, #6366f1);
-    opacity: 0;
-    transition: opacity 0.2s;
-}
+/* ── Status badges ──────────────────────────────────────── */
+.badge-ok   { background:var(--ok-bg); color:var(--ok-txt) !important; padding:3px 14px; border-radius:6px; font-size:12px; font-weight:700; border:1px solid var(--ok-bdr); animation:pulseOk 3s ease infinite; }
+.badge-warn { background:var(--wn-bg); color:var(--wn-txt) !important; padding:3px 14px; border-radius:6px; font-size:12px; font-weight:700; border:1px solid var(--wn-bdr); animation:pulseWarn 1.4s ease infinite; }
+@keyframes pulseOk   { 0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,0)} 50%{box-shadow:0 0 0 4px rgba(16,185,129,.12)} }
+@keyframes pulseWarn { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}  50%{box-shadow:0 0 0 5px rgba(239,68,68,.14)} }
 
-.mcard:hover {
-    border-color: #2d3748;
-    transform: translateY(-1px);
-}
-
-.mcard:hover::before {
-    opacity: 1;
-}
-
-.mcard .val {
-    font-size: 16px;
-    font-weight: 600;
-    color: #e2e8f0;
-    font-family: 'JetBrains Mono', monospace;
-    letter-spacing: -0.02em;
-    margin-top: 6px;
-    display: block;
-}
-
-.mcard .lbl {
-    font-size: 10px;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-weight: 500;
-}
-
-/* ── Status badges ── */
-.badge-ok {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: rgba(16, 185, 129, 0.12);
-    color: #10b981;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1px solid rgba(16, 185, 129, 0.25);
-    letter-spacing: 0.02em;
-}
-
-.badge-warn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: rgba(239, 68, 68, 0.12);
-    color: #ef4444;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1px solid rgba(239, 68, 68, 0.25);
-    letter-spacing: 0.02em;
-}
-
-/* ── Audio Banner ── */
+/* ── Audio banner ───────────────────────────────────────── */
 .audio-banner {
-    background: linear-gradient(135deg, #0d1f35 0%, #0d1117 100%);
-    border: 1px solid #1e3a5f;
-    border-left: 3px solid #3b82f6;
-    border-radius: 10px;
-    padding: 12px 18px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: #93c5fd;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    flex-wrap: wrap;
+  background:linear-gradient(90deg,var(--accent-sub),transparent);
+  border:1px solid rgba(37,99,235,.22); border-left:3px solid #2563eb;
+  border-radius:10px; padding:11px 18px; margin-bottom:16px; font-size:13px;
+  color:var(--txt-p) !important;
+  animation:slideIn .4s var(--ease) both;
+}
+@keyframes slideIn { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:translateX(0)} }
+.audio-banner b { color:#2563eb !important; }
+
+/* ── Sidebar section headers ────────────────────────────── */
+[data-testid="stSidebar"] h3 {
+  font-size:11px !important; font-weight:700 !important;
+  letter-spacing:.10em !important; text-transform:uppercase !important;
+  color:var(--txt-m) !important; margin-top:20px !important;
 }
 
-.audio-banner strong {
-    color: #bfdbfe;
-    font-weight: 600;
-}
-
-.audio-banner .warn-note {
-    color: #fbbf24;
-    font-size: 12px;
-    opacity: 0.9;
-}
-
-/* ── Section Headers ── */
-.section-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 20px 0 14px 0;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #1e2631;
-}
-
-.section-header h3 {
-    color: #cbd5e1;
-    font-size: 14px;
-    font-weight: 600;
-    margin: 0;
-    letter-spacing: -0.01em;
-}
-
-.section-num {
-    background: #1a1f2e;
-    border: 1px solid #2d3748;
-    color: #06b6d4;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-/* ── Sidebar typography ── */
-section[data-testid="stSidebar"] .sidebar-section-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: 12px 0 6px 0;
-    border-bottom: 1px solid #1e2631;
-    margin-bottom: 10px;
-}
-
-/* ── Plotly container polish ── */
-.stPlotlyChart {
-    border-radius: 10px;
-    overflow: hidden;
-}
-
-/* ── Tabs ── */
-.stTabs [data-baseweb="tab-list"] {
-    background: #0d1117;
-    border-bottom: 1px solid #1e2631;
-    gap: 0;
-    padding: 0;
-}
-
-.stTabs [data-baseweb="tab"] {
-    background: transparent;
-    color: #64748b !important;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    padding: 10px 18px;
-    font-size: 13px;
-    font-weight: 500;
-    transition: color 0.15s, border-color 0.15s;
-}
-
-.stTabs [data-baseweb="tab"]:hover {
-    color: #94a3b8 !important;
-    background: rgba(255,255,255,0.03);
-}
-
-.stTabs [aria-selected="true"] {
-    color: #06b6d4 !important;
-    border-bottom-color: #06b6d4 !important;
-    background: transparent;
-}
-
-/* ── Expander ── */
-.streamlit-expanderHeader {
-    background: #0d1117 !important;
-    border: 1px solid #1e2631 !important;
-    border-radius: 8px !important;
-    color: #94a3b8 !important;
-    font-size: 13px !important;
-}
-
-/* ── Alert overrides ── */
-.stAlert {
-    background: #0d1117 !important;
-    border-radius: 8px !important;
-    font-size: 13px !important;
-}
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #080c12; }
-::-webkit-scrollbar-thumb { background: #1e2631; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #2d3748; }
-
-/* ── Info box custom ── */
-.info-box {
-    background: #0d1117;
-    border: 1px solid #1e2631;
-    border-radius: 10px;
-    padding: 20px 24px;
-    text-align: center;
-    color: #475569;
-    font-size: 13px;
-    margin: 20px 0;
-}
-
-.info-box .icon {
-    font-size: 32px;
-    margin-bottom: 10px;
-    display: block;
-}
-
-.info-box strong {
-    color: #94a3b8;
-    display: block;
-    font-size: 15px;
-    margin-bottom: 6px;
-}
-
-/* ── Theory table ── */
-.stMarkdown table {
-    background: #0d1117 !important;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid #1e2631 !important;
-    font-size: 13px;
-}
-
-.stMarkdown th {
-    background: #111827 !important;
-    color: #94a3b8 !important;
-    font-weight: 600 !important;
-    border-color: #1e2631 !important;
-}
-
-.stMarkdown td {
-    color: #cbd5e1 !important;
-    border-color: #1e2631 !important;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-}
-
-/* ── Sidebar upload area ── */
-.sidebar-upload-zone {
-    background: #0d1117;
-    border: 1.5px dashed #2d3748;
-    border-radius: 10px;
-    padding: 16px;
-    text-align: center;
-    margin-bottom: 12px;
-    transition: border-color 0.2s;
-}
-
-/* ── Caption text ── */
-.stCaption {
-    color: #475569 !important;
-    font-size: 11.5px !important;
-}
-
-/* ── Dividers ── */
-hr {
-    border-color: #1e2631 !important;
-    margin: 18px 0 !important;
-}
-
-/* ── Subheader overrides ── */
-h2, h3 {
-    color: #cbd5e1 !important;
-    font-family: 'Inter', sans-serif !important;
+/* ── Dark mode toggle row ───────────────────────────────── */
+.theme-row {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 0; font-size:12px; font-weight:600;
+  color:var(--txt-s) !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
+# ── Hero ──────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="dsp-header">
+  <div class="dsp-header-inner">
+    <h1>🔬 DSP Pro Lab · 8vaults</h1>
+    <p>Interactive Digital Signal Processing Playground</p>
+    <p>Problem Statement 18 — Sampling &amp; Aliasing Visual Demonstrator</p>
+    <span class="pill">MIT 6.003 · Nyquist–Shannon · Streamlit + Plotly</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HELPERS
+# CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
+N_POINTS = 4_000
+FFT_NORM_FLOOR = 1e-12
+DB_FLOOR = -80.0
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
+with st.sidebar:
+    # ── Theme toggle (FIRST so it affects everything below) ──────────────────
+    st.markdown("### 🎨 Display")
+    st.session_state["dark_mode"] = st.toggle(
+        "Dark mode plots",
+        value=st.session_state["dark_mode"],
+        help="Toggles Plotly chart backgrounds between light and dark. "
+             "Match this to your system theme for best readability.",
+    )
+
+    st.markdown("---")
+    st.markdown("### 🎛️ Signal Generator")
+    signal_type = st.selectbox(
+        "Waveform", ["Sine", "Square", "Triangle", "Sawtooth", "Chirp"])
+    freq = st.slider("Frequency (Hz)",      1,  50,  5)
+    fs_raw = st.slider("Sampling Rate (Hz)",  2, 200, 40)
+    amp = st.slider("Amplitude",         0.1, 3.0, 1.0, 0.1)
+    duration = st.slider("Duration (s)",        1,   5,   2)
+
+    st.markdown("---")
+    st.markdown("### 🔊 Noise & Filter")
+    noise_level = st.slider("Noise Level",       0.0, 2.0, 0.0, 0.1)
+    filter_win = st.slider("Filter Window (n)", 2,    80,  10)
+
+    st.markdown("---")
+    st.markdown("### 📂 Audio Input")
+    st.caption("Upload a WAV — replaces synthesised signal in all modules.")
+    uploaded_file = st.file_uploader(
+        "WAV file", type=["wav"], label_visibility="collapsed")
+
+    if uploaded_file is not None:
+        fkey = uploaded_file.name + str(uploaded_file.size)
+        if st.session_state.get("_akey") != fkey:
+            try:
+                def _load_wav(file_obj):
+                    buf = io.BytesIO(file_obj.read())
+                    with wave.open(buf, "rb") as wf:
+                        rate = wf.getframerate()
+                        nch = wf.getnchannels()
+                        nsmp = wf.getnframes()
+                        sw = wf.getsampwidth()
+                        raw = wf.readframes(nsmp)
+                    dtype = {1: np.int8, 2: np.int16,
+                             4: np.int32}.get(sw, np.int16)
+                    audio = np.frombuffer(raw, dtype=dtype).astype(np.float64)
+                    if nch >= 2:
+                        audio = audio[::nch]
+                    peak = float(np.max(np.abs(audio)))
+                    if peak > 0:
+                        audio /= peak
+                    return audio, rate
+                _ad, _ar = _load_wav(uploaded_file)
+                st.session_state.update({"_adata": _ad, "_arate": _ar,
+                                         "_aname": uploaded_file.name, "_akey": fkey})
+            except Exception as e:
+                st.error(f"Could not read WAV: {e}")
+    else:
+        for k in ("_adata", "_arate", "_aname", "_akey"):
+            st.session_state.pop(k, None)
+
+    if "_adata" in st.session_state:
+        _ad, _ar = st.session_state["_adata"], st.session_state["_arate"]
+        st.success(f"✅ **{st.session_state['_aname']}**\n\n"
+                   f"{_ar} Hz · {len(_ad)/_ar:.1f} s · All modules active.")
+
+    st.markdown("---")
+    st.caption("DSP Pro Lab · 8vaults · PS-18")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RESOLVE THEME  (after sidebar renders — toggle value is now committed)
+# ══════════════════════════════════════════════════════════════════════════════
+T = _theme()   # dict with all colour tokens for current mode
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PURE HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+
 def next_pow2(n: int) -> int:
     p = 1
     while p < n:
@@ -402,249 +383,115 @@ def next_pow2(n: int) -> int:
     return p
 
 
-def gen_signal(time_arr, f, a, wtype, dur):
+def gen_signal(t: np.ndarray, f: float, a: float, wtype: str, dur: float) -> np.ndarray:
+    if f <= 0:
+        return np.zeros_like(t)
+    w = 2.0 * np.pi * f * t
     if wtype == "Sine":
-        return a * np.sin(2 * np.pi * f * time_arr)
+        return a * np.sin(w)
     if wtype == "Square":
-        return a * np.sign(np.sin(2 * np.pi * f * time_arr))
+        return a * np.sign(np.sin(w))
     if wtype == "Triangle":
-        return a * (2.0 / np.pi) * np.arcsin(np.sin(2 * np.pi * f * time_arr))
+        return a * (2.0 / np.pi) * np.arcsin(np.clip(np.sin(w), -1, 1))
     if wtype == "Sawtooth":
-        return a * (2.0 * ((time_arr * f) % 1.0) - 1.0)
+        return a * (2.0 * ((t * f) % 1.0) - 1.0)
     if wtype == "Chirp":
         k = f / max(dur, 1e-9)
-        return a * np.sin(2 * np.pi * (f * time_arr + 0.5 * k * time_arr ** 2))
-    return np.zeros_like(time_arr)
+        return a * np.sin(2.0 * np.pi * (f * t + 0.5 * k * t ** 2))
+    return np.zeros_like(t)
 
 
-def moving_avg(s, w):
+def moving_avg(s: np.ndarray, w: int) -> np.ndarray:
     w = max(1, int(w))
     return np.convolve(s, np.ones(w) / w, mode="same")
 
 
-def compute_fft(sig, sample_rate):
+def compute_fft(sig: np.ndarray, sample_rate: float):
     n = next_pow2(max(len(sig), 4))
     win = np.hanning(len(sig))
-    padded = np.zeros(n)
-    padded[: len(sig)] = sig * win
-    spectrum = np.fft.rfft(padded)
+    pad = np.zeros(n)
+    pad[:len(sig)] = sig * win
+    spec = np.fft.rfft(pad)
     freqs = np.fft.rfftfreq(n, d=1.0 / max(sample_rate, 1.0))
-    mags = np.abs(spectrum) / (n / 2.0)
-    max_mag = float(mags.max()) if mags.max() > 0 else 1e-12
-    power_db = 20.0 * np.log10(np.maximum(mags / max_mag, 1e-12))
-    return freqs, mags, power_db, n
+    mags = np.abs(spec) / (n / 2.0)
+    mx = float(mags.max()) if mags.max() > 0 else FFT_NORM_FLOOR
+    pdb = 20.0 * np.log10(np.maximum(mags / mx, FFT_NORM_FLOOR))
+    return freqs, mags, pdb, n
 
 
-def fft_bandwidth(freqs, mags, threshold=0.1):
-    max_mag = float(mags.max())
-    mask = mags > max_mag * threshold
+def fft_bandwidth(freqs: np.ndarray, mags: np.ndarray, thr: float = 0.1) -> float:
+    mx = float(mags.max())
+    mask = mags > mx * thr
     if int(np.count_nonzero(mask)) >= 2:
         idx = np.where(mask)[0]
         return round(float(freqs[idx[-1]]) - float(freqs[idx[0]]), 2)
     return 0.0
 
 
-def load_wav(file_obj):
-    buf  = io.BytesIO(file_obj.read())
-    wf   = wave.open(buf, "rb")
-    rate = wf.getframerate()
-    nch  = wf.getnchannels()
-    nsmp = wf.getnframes()
-    sw   = wf.getsampwidth()
-    raw  = wf.readframes(nsmp)
-    wf.close()
-    dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(sw, np.int16)
-    audio = np.frombuffer(raw, dtype=dtype).astype(np.float64)
-    if nch >= 2:
-        audio = audio[::nch]
-    peak = float(np.max(np.abs(audio)))
-    if peak > 0:
-        audio /= peak
-    return audio, rate
+def fill_color(hex_color: str, alpha: float) -> str:
+    """Convert hex colour + alpha → rgba string."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
 
 
-# ── Plotly theme ────────────────────────────────────────────────────────────
-COLORS = {
-    "green":   "#10b981",
-    "blue":    "#3b82f6",
-    "purple":  "#06b6d4",
-    "orange":  "#f97316",
-    "yellow":  "#f59e0b",
-    "red":     "#ef4444",
-    "cyan":    "#06b6d4",
-    "pink":    "#ec4899",
-    "indigo":  "#6366f1",
-    "bg":      "#080c12",
-    "surface": "#0d1117",
-    "border":  "#1e2631",
-    "text":    "#94a3b8",
-    "muted":   "#475569",
-}
-
-CHART_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="#0b0f18",
-    font=dict(color=COLORS["text"], size=11.5, family="JetBrains Mono, monospace"),
-    legend=dict(
-        bgcolor="rgba(13,17,23,0.9)",
-        bordercolor=COLORS["border"],
-        borderwidth=1,
-        font=dict(color="#94a3b8", size=11),
-        itemsizing="constant",
-    ),
-    margin=dict(l=60, r=20, t=46, b=52),
-)
-
-AXIS_STYLE = dict(
-    gridcolor="rgba(30,38,49,0.9)",
-    gridwidth=1,
-    zerolinecolor="rgba(148,163,184,0.15)",
-    zerolinewidth=1,
-    color=COLORS["text"],
-    linecolor=COLORS["border"],
-    linewidth=1,
-    tickfont=dict(size=10.5, family="JetBrains Mono, monospace"),
-    showgrid=True,
-)
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT HELPERS — all use T (theme dict) evaluated at render time
+# ══════════════════════════════════════════════════════════════════════════════
+def _ax():
+    return dict(
+        gridcolor=T["PGRID"],
+        zerolinecolor=T["PZERO"],
+        zerolinewidth=1,
+        color=T["PTXT"],
+        linecolor=T["PLINE"],
+        linewidth=1,
+        tickfont=dict(size=11, color=T["PTICK"],
+                      family="'IBM Plex Mono',monospace"),
+        title_font=dict(color=T["PTXT"], size=12),
+    )
 
 
-def apply_theme(fig, height=420, title="", xtitle="Time (s)", ytitle="Amplitude",
-                accent=None):
-    layout = {**CHART_LAYOUT, "height": height}
+def _base_layout(height=420, title=""):
+    d = dict(
+        paper_bgcolor=T["PBG"],
+        plot_bgcolor=T["PPBG"],
+        font=dict(color=T["PTXT"], size=12,
+                  family="'IBM Plex Mono',monospace"),
+        legend=dict(
+            bgcolor=T["PLEG"],
+            bordercolor=T["PLINE"],
+            borderwidth=1,
+            font=dict(color=T["PTXT"], size=11),
+        ),
+        margin=dict(l=64, r=24, t=52, b=56),
+        height=height,
+        transition=dict(duration=350, easing="cubic-in-out"),
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor=T["PBG"],
+            bordercolor=T["PLINE"],
+            font=dict(color=T["PTXT"],
+                      family="'IBM Plex Mono',monospace", size=11),
+        ),
+    )
     if title:
-        layout["title"] = dict(
-            text=title,
-            font=dict(color="#64748b", size=12, family="Inter, sans-serif"),
-            x=0,
-            xanchor="left",
-            pad=dict(l=4),
-        )
-    fig.update_layout(**layout)
-    fig.update_xaxes(title_text=xtitle, title_font=dict(size=11), **AXIS_STYLE)
-    fig.update_yaxes(title_text=ytitle, title_font=dict(size=11), **AXIS_STYLE)
+        d["title"] = dict(text=title, font=dict(color=T["PTXT"], size=12,
+                                                family="'DM Sans',sans-serif"))
+    return d
 
 
-def mcard(label, value, accent=None):
-    accent_color = accent or COLORS["purple"]
+def theme_fig(fig, height=420, title="", xt="Time (s)", yt="Amplitude"):
+    fig.update_layout(**_base_layout(height, title))
+    a = _ax()
+    fig.update_xaxes(title_text=xt, **a)
+    fig.update_yaxes(title_text=yt, **a)
+
+
+def mcard(label: str, value: str):
     st.markdown(
-        f'<div class="mcard">'
-        f'<div class="lbl">{label}</div>'
-        f'<span class="val" style="color:{accent_color}">{value}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def section_header(num, title):
-    st.markdown(
-        f'<div class="section-header">'
-        f'<div class="section-num">{num}</div>'
-        f'<h3>{title}</h3>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# HEADER
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("""
-<div class="dsp-header">
-  <div class="dsp-header-left">
-    <h1>🔬 DSP Pro Lab</h1>
-    <p>Interactive Digital Signal Processing Playground &nbsp;·&nbsp;
-       Problem Statement 18 — Sampling &amp; Aliasing Visual Demonstrator</p>
-  </div>
-  <div class="dsp-header-badge">
-    Team <span>8vaults</span> &nbsp;·&nbsp; Nyquist–Shannon: Fs ≥ 2·f_max
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown('<p class="sidebar-section-title">📂 Audio Input</p>', unsafe_allow_html=True)
-    st.caption("Upload a WAV — it becomes the signal source for all modules.")
-
-    uploaded_file = st.file_uploader(
-        "WAV file", type=["wav"], label_visibility="collapsed",
-        help="Supports mono/stereo WAV files. Stereo is downmixed to mono."
-    )
-
-    if uploaded_file is not None:
-        file_key = uploaded_file.name + str(uploaded_file.size)
-        if st.session_state.get("audio_key") != file_key:
-            try:
-                audio_data, audio_rate = load_wav(uploaded_file)
-                st.session_state["audio_data"] = audio_data
-                st.session_state["audio_rate"] = audio_rate
-                st.session_state["audio_name"] = uploaded_file.name
-                st.session_state["audio_key"]  = file_key
-            except Exception as e:
-                st.error(f"Could not read WAV: {e}")
-    else:
-        for k in ("audio_data", "audio_rate", "audio_name", "audio_key"):
-            st.session_state.pop(k, None)
-
-    audio_loaded = "audio_data" in st.session_state
-    if audio_loaded:
-        a_dur_sb = len(st.session_state["audio_data"]) / st.session_state["audio_rate"]
-        st.success(
-            f"✅ **{st.session_state['audio_name']}**\n\n"
-            f"{st.session_state['audio_rate']} Hz · {a_dur_sb:.1f} s · "
-            f"All modules active."
-        )
-
-    st.markdown("---")
-
-    st.markdown('<p class="sidebar-section-title">🎛️ Signal Generator</p>', unsafe_allow_html=True)
-
-    if audio_loaded:
-        st.info(
-            "**Audio mode active** — waveform controls overridden by WAV. "
-            "Remove the file to use the synthesiser.",
-            icon="🎵",
-        )
-        signal_type = st.selectbox("Waveform *(inactive)*", ["Sine", "Square", "Triangle", "Sawtooth", "Chirp"], disabled=True)
-        freq        = st.slider("Frequency Hz *(inactive)*",   1, 50, 5, disabled=True)
-        amp         = st.slider("Amplitude *(inactive)*",    0.1, 3.0, 1.0, 0.1, disabled=True)
-        duration    = st.slider("Duration s *(inactive)*",     1,  5,  2, disabled=True)
-        st.markdown("**Sampling Rate** — active (controls resampling):")
-        fs_raw      = st.slider("Sampling Rate (Hz)", 2, 200, 40,
-                                help="How many samples per second to take from the audio signal.")
-    else:
-        signal_type = st.selectbox(
-            "Waveform", ["Sine", "Square", "Triangle", "Sawtooth", "Chirp"],
-            help="Choose the waveform type to synthesise."
-        )
-        freq   = st.slider("Frequency (Hz)", 1, 50, 5,
-                           help="Fundamental frequency of the signal in Hz.")
-        fs_raw = st.slider("Sampling Rate (Hz)", 2, 200, 40,
-                           help="Set below 2× frequency to trigger aliasing (Nyquist criterion).")
-        amp    = st.slider("Amplitude", 0.1, 3.0, 1.0, 0.1,
-                           help="Peak amplitude of the generated signal.")
-        duration = st.slider("Duration (s)", 1, 5, 2,
-                             help="Length of the generated signal in seconds.")
-
-    st.markdown("---")
-    st.markdown('<p class="sidebar-section-title">🔊 Noise &amp; Filter</p>', unsafe_allow_html=True)
-
-    noise_level = st.slider(
-        "Noise Level", 0.0, 2.0, 0.0, 0.1,
-        help="Standard deviation of additive Gaussian noise."
-    )
-    filter_win  = st.slider(
-        "Filter Window (samples)", 2, 80, 10,
-        help="Moving-average FIR filter length. Larger = more smoothing, more delay."
-    )
-
-    st.markdown("---")
-    st.markdown(
-        "<div style='font-size:10.5px;color:#334155;padding:4px 0;'>"
-        "DSP Pro Lab · 8vaults · PS-18</div>",
+        f'<div class="mcard"><div class="lbl">{label}</div>'
+        f'<div class="val">{value}</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -653,269 +500,221 @@ with st.sidebar:
 # CORE SIGNAL
 # ══════════════════════════════════════════════════════════════════════════════
 fs = max(int(fs_raw), 2)
-N  = 4000
 
-if "audio_data" in st.session_state:
-    raw_audio    = st.session_state["audio_data"]
-    audio_rate   = st.session_state["audio_rate"]
-    indices      = np.linspace(0, len(raw_audio) - 1, N).astype(int)
-    signal       = raw_audio[indices]
-    duration_eff = float(len(raw_audio) / audio_rate)
-    t            = np.linspace(0.0, duration_eff, N, endpoint=False)
-    ts           = np.arange(0.0, duration_eff, 1.0 / fs)
-    ts_idx       = np.clip((ts * audio_rate).astype(int), 0, len(raw_audio) - 1)
-    sampled      = raw_audio[ts_idx]
-    fq, mq, _, _ = compute_fft(signal[:min(N, 8192)], float(audio_rate))
-    freq_eff     = max(1, int(round(float(fq[int(np.argmax(mq))]))))
-    source_label = f"🎵 {st.session_state['audio_name']}"
+if "_adata" in st.session_state:
+    raw_audio = st.session_state["_adata"]
+    audio_rate = st.session_state["_arate"]
+    idx = np.linspace(0, len(raw_audio) - 1, N_POINTS).astype(int)
+    signal = raw_audio[idx]
+    dur_eff = float(len(raw_audio) / audio_rate)
+    t = np.linspace(0.0, dur_eff, N_POINTS, endpoint=False)
+    ts = np.arange(0.0, dur_eff, 1.0 / fs)
+    ts_idx = np.clip((ts * audio_rate).astype(int), 0, len(raw_audio) - 1)
+    sampled = raw_audio[ts_idx]
+    fq, mq, _, _ = compute_fft(signal[:min(N_POINTS, 8192)], float(audio_rate))
+    freq_eff = max(1, int(round(float(fq[int(np.argmax(mq))]))))
+    src_lbl = f"🎵 {st.session_state['_aname']}"
 else:
-    t            = np.linspace(0.0, duration, N, endpoint=False)
-    ts           = np.arange(0.0, duration, 1.0 / fs)
-    signal       = gen_signal(t, freq, amp, signal_type, duration)
-    sampled      = gen_signal(ts, freq, amp, signal_type, duration)
-    duration_eff = float(duration)
-    freq_eff     = freq
-    source_label = f"🔧 {signal_type} {freq} Hz"
+    t = np.linspace(0.0, duration, N_POINTS, endpoint=False)
+    ts = np.arange(0.0, duration, 1.0 / fs)
+    signal = gen_signal(t, freq, amp, signal_type, float(duration))
+    sampled = gen_signal(ts, freq, amp, signal_type, float(duration))
+    dur_eff = float(duration)
+    freq_eff = freq
+    src_lbl = f"🔧 {signal_type} {freq} Hz"
 
-nyquist  = 2 * freq_eff
-alias_f  = abs(freq_eff - round(freq_eff / fs) * fs)
+nyquist = 2 * freq_eff
+alias_f = abs(freq_eff - round(freq_eff / fs) * fs)
 is_alias = fs < nyquist
 
-rng       = np.random.default_rng(42)
-noise_vec = rng.normal(0.0, noise_level, N) if noise_level > 0 else np.zeros(N)
-noisy     = signal + noise_vec
-filtered  = moving_avg(noisy, filter_win)
+rng = np.random.default_rng(42)
+noise_vec = rng.normal(
+    0.0, noise_level, N_POINTS) if noise_level > 0 else np.zeros(N_POINTS)
+noisy = signal + noise_vec
+filtered = moving_avg(noisy, filter_win)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# AUDIO BANNER
-# ══════════════════════════════════════════════════════════════════════════════
-if "audio_data" in st.session_state:
-    a_dur = len(st.session_state["audio_data"]) / st.session_state["audio_rate"]
+# ── Audio banner ──────────────────────────────────────────────────────────────
+if "_adata" in st.session_state:
+    _ad, _ar = st.session_state["_adata"], st.session_state["_arate"]
     st.markdown(
-        f'<div class="audio-banner">'
-        f'<div>🎵</div>'
-        f'<div>'
-        f'<strong>Audio mode active</strong> — '
-        f'{st.session_state["audio_name"]} '
-        f'({st.session_state["audio_rate"]} Hz · {a_dur:.1f} s) &nbsp;·&nbsp; '
-        f'Dominant freq: <strong>{freq_eff} Hz</strong> &nbsp;·&nbsp; '
-        f'Nyquist min: <strong>{nyquist} Hz</strong><br>'
-        f'<span class="warn-note">⚠ Waveform / Frequency / Amplitude / Duration sliders overridden. '
-        f'Only Sampling Rate, Noise and Filter controls are active.</span>'
-        f'</div>'
-        f'</div>',
+        f'<div class="audio-banner">🎵 &nbsp;<b>Audio mode</b> — '
+        f'<b>{st.session_state["_aname"]}</b> '
+        f'({_ar} Hz · {len(_ad)/_ar:.1f} s) · '
+        f'Dominant: <b>{freq_eff} Hz</b> · Nyquist min: <b>{nyquist} Hz</b></div>',
         unsafe_allow_html=True,
     )
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STATUS METRIC BAR
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Status bar ────────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 with c1:
-    mcard("Source", source_label[:18], COLORS["blue"])
+    mcard("Source",        src_lbl[:22])
 with c2:
-    mcard("Signal Freq", f"{freq_eff} Hz", COLORS["cyan"])
+    mcard("Signal Freq",   f"{freq_eff} Hz")
 with c3:
-    mcard("Sampling Rate", f"{fs} Hz", COLORS["purple"])
+    mcard("Sampling Rate", f"{fs} Hz")
 with c4:
-    mcard("Nyquist Min", f"{nyquist} Hz", COLORS["indigo"])
+    mcard("Nyquist Min",   f"{nyquist} Hz")
 with c5:
-    mcard("Alias Freq", f"{alias_f:.1f} Hz", COLORS["orange"])
+    mcard("Alias Freq",    f"{alias_f:.1f} Hz")
 with c6:
-    if is_alias:
-        badge = '<span class="badge-warn">⚠ Aliasing</span>'
-    else:
-        badge = '<span class="badge-ok">✓ Clean</span>'
-    st.markdown(
-        f'<div class="mcard">'
-        f'<div class="lbl">Status</div>'
-        f'<div style="margin-top:7px">{badge}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
+    badge = ('<span class="badge-warn">⚠ Aliasing</span>' if is_alias
+             else '<span class="badge-ok">✓ Clean</span>')
+    st.markdown(f'<div class="mcard"><div class="lbl">Status</div>'
+                f'<div class="val" style="font-size:13px;padding-top:6px">{badge}</div></div>',
+                unsafe_allow_html=True)
 st.markdown("---")
 
+# ── Plot fill alpha — stronger in dark for contrast ───────────────────────────
+FA = T["FA"]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
 (tab_scope, tab_fft, tab_phase,
- tab_filter, tab_water, tab_liss, tab_audio) = st.tabs([
-    "  Oscilloscope  ",
-    "  FFT Spectrum  ",
-    "  Phase Space  ",
-    "  Filter Lab  ",
-    "  Waterfall  ",
-    "  Lissajous  ",
-    "  Audio Analyzer  ",
-])
-
+ tab_filter, tab_water, tab_liss,
+ tab_3d, tab_audio) = st.tabs([
+     "🔭  Oscilloscope",
+     "📈  FFT Spectrum",
+     "🌀  Phase Space",
+     "🔧  Filter Lab",
+     "🌊  Waterfall",
+     "〰️  Lissajous",
+     "🌐  3D Models",
+     "🎵  Audio Analyzer",
+ ])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — OSCILLOSCOPE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_scope:
-
-    col1, col2 = st.columns(2, gap="medium")
-
-    with col1:
-        section_header("01", "Continuous Signal")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("① Continuous Signal")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=t, y=signal, mode="lines", name="x(t) — Continuous",
-            line=dict(color=COLORS["green"], width=1.8),
-        ))
+        fig.add_trace(go.Scatter(x=t, y=signal, mode="lines", name="x(t)",
+                                 line=dict(color=_C["cont"], width=2)))
         if noise_level > 0:
-            fig.add_trace(go.Scatter(
-                x=t, y=noisy, mode="lines", name=f"x(t) + Noise (σ={noise_level:.1f})",
-                line=dict(color=COLORS["red"], width=1.0),
-                opacity=0.55,
-            ))
-        apply_theme(fig, height=400,
-                    title=f"{source_label}  ·  A = {amp:.1f}")
+            fig.add_trace(go.Scatter(x=t, y=noisy, mode="lines",
+                                     name=f"+ Noise ({noise_level:.1f})",
+                                     line=dict(
+                                         color=_C["noisy"], width=1, dash="dot"),
+                                     opacity=0.7))
+        theme_fig(fig, 420, f"{src_lbl}  ·  A={amp:.1f}")
         st.plotly_chart(fig, use_container_width=True)
 
-    with col2:
-        section_header("02", "Sampled Signal")
+    with c2:
+        st.subheader("② Sampled Signal")
         fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(
-            x=t, y=signal, mode="lines", name="Continuous (ref)",
-            line=dict(color=COLORS["green"], width=1.2, dash="dot"),
-            opacity=0.3,
-        ))
-        stem_x, stem_y = [], []
+        fig2.add_trace(go.Scatter(x=t, y=signal, mode="lines", name="Continuous (ref)",
+                                  line=dict(color=_C["cont"],
+                                            width=1.4, dash="dot"),
+                                  opacity=0.28))
+        # Stem lines
+        sx, sy = [], []
         for xi, yi in zip(ts, sampled):
-            stem_x += [float(xi), float(xi), None]
-            stem_y += [0.0, float(yi), None]
-        fig2.add_trace(go.Scatter(
-            x=stem_x, y=stem_y, mode="lines", showlegend=False,
-            line=dict(color=COLORS["orange"], width=1.0),
-            opacity=0.4,
-        ))
-        fig2.add_trace(go.Scatter(
-            x=ts, y=sampled, mode="markers", name=f"Samples · Fs = {fs} Hz",
-            marker=dict(
-                color=COLORS["orange"], size=7,
-                line=dict(color="#fff", width=0.5),
-            ),
-        ))
-        apply_theme(fig2, height=400,
-                    title=f"Fs = {fs} Hz · {len(ts)} samples · T = {1/fs*1000:.1f} ms")
+            sx += [float(xi), float(xi), None]
+            sy += [0.0, float(yi), None]
+        stem_col = "rgba(249,115,22,0.50)" if T["dark"] else "rgba(249,115,22,0.35)"
+        fig2.add_trace(go.Scatter(x=sx, y=sy, mode="lines", showlegend=False,
+                                  line=dict(color=stem_col, width=1)))
+        fig2.add_trace(go.Scatter(x=ts, y=sampled, mode="markers",
+                                  name=f"Samples (Fs={fs} Hz)",
+                                  marker=dict(color=_C["samp"], size=7,
+                                              line=dict(color=T["PBG"], width=1.2))))
+        theme_fig(
+            fig2, 420, f"Fs={fs} Hz · {len(ts)} samples · T={1/fs*1000:.1f} ms")
         st.plotly_chart(fig2, use_container_width=True)
 
-    section_header("03", "Aliasing Visualisation — Time Domain")
-    alias_sig = gen_signal(t, alias_f, amp, "Sine", duration_eff)
+    st.subheader("③ Aliasing Visualisation")
+    alias_sig = gen_signal(t, alias_f, amp, "Sine", dur_eff)
     fig3 = go.Figure()
-    fig3.add_trace(go.Scatter(
-        x=t, y=signal, mode="lines", name=f"Original  {freq_eff} Hz",
-        line=dict(color=COLORS["green"], width=2.0),
-    ))
-    fig3.add_trace(go.Scatter(
-        x=ts, y=sampled, mode="markers", name=f"Samples · Fs = {fs} Hz",
-        marker=dict(color=COLORS["yellow"], size=6),
-    ))
+    fig3.add_trace(go.Scatter(x=t, y=signal, mode="lines",
+                              name=f"Original {freq_eff} Hz",
+                              line=dict(color=_C["cont"], width=2.2)))
+    fig3.add_trace(go.Scatter(x=ts, y=sampled, mode="markers",
+                              name=f"Samples Fs={fs}Hz",
+                              marker=dict(color=_C["samp"], size=6,
+                                          line=dict(color=T["PBG"], width=1))))
     if is_alias:
-        fig3.add_trace(go.Scatter(
-            x=t, y=alias_sig, mode="lines", name=f"Alias  {alias_f:.2f} Hz",
-            line=dict(color=COLORS["orange"], width=2.0, dash="dash"),
-        ))
-    note = f"⚠ ALIASING  Fs={fs} < {nyquist}" if is_alias else f"✓ Clean  Fs={fs} ≥ {nyquist}"
-    apply_theme(
-        fig3, height=420,
-        title=f"alias = |{freq_eff} − round({freq_eff}/{fs})×{fs}| = {alias_f:.2f} Hz   [{note}]",
-    )
+        fig3.add_trace(go.Scatter(x=t, y=alias_sig, mode="lines",
+                                  name=f"Alias {alias_f:.2f} Hz",
+                                  line=dict(color=_C["alias"], width=2, dash="dash")))
+    note = f"⚠ Fs={fs} < {nyquist}" if is_alias else f"✓ Fs={fs} ≥ {nyquist}"
+    theme_fig(fig3, 440,
+              f"alias = |{freq_eff} − round({freq_eff}/{fs})×{fs}| = {alias_f:.2f} Hz  [{note}]")
     st.plotly_chart(fig3, use_container_width=True)
 
     if is_alias:
-        st.error(
-            f"**Aliasing detected!**  {freq_eff} Hz requires Fs ≥ {nyquist} Hz (Nyquist criterion). "
-            f"At Fs = {fs} Hz, the signal appears as **{alias_f:.2f} Hz**.",
-            icon="⚠️",
-        )
+        st.error(f"**Aliasing!** {freq_eff} Hz needs Fs ≥ {nyquist} Hz. "
+                 f"At Fs={fs} Hz it appears as **{alias_f:.2f} Hz**.")
     else:
-        st.success(
-            f"**No aliasing.**  Fs = {fs} Hz ≥ Nyquist = {nyquist} Hz ✓",
-            icon="✅",
-        )
-
+        st.success(f"**No aliasing.** Fs={fs} Hz ≥ Nyquist={nyquist} Hz ✓")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — FFT SPECTRUM
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_fft:
-
     freqs_hz, mags, power_db, n_fft = compute_fft(noisy, float(fs))
-    max_mag  = float(mags.max()) if mags.size > 0 else 1e-12
-    dom_idx  = int(np.argmax(mags))
+    dom_idx = int(np.argmax(mags))
     dom_freq = round(float(freqs_hz[dom_idx]), 2)
-    bw_hz    = fft_bandwidth(freqs_hz, mags)
-    snr_db   = (round(20.0 * np.log10(float(amp) / max(float(noise_level), 1e-9)), 1)
-                if noise_level > 0 else 99.0)
-    harm_rms = float(np.sqrt(np.sum(mags[dom_idx + 1:] ** 2))) if dom_idx + 1 < len(mags) else 0.0
-    thd_pct  = round(harm_rms / max(float(mags[dom_idx]), 1e-9) * 100.0, 1)
+    bw_hz = fft_bandwidth(freqs_hz, mags)
+    snr_db = (round(20.0 * np.log10(float(amp) / max(float(noise_level), 1e-9)), 1)
+              if noise_level > 0 else 99.0)
+    harm_rms = float(
+        np.sqrt(np.sum(mags[dom_idx+1:] ** 2))) if dom_idx + 1 < len(mags) else 0.0
+    thd_pct = round(
+        harm_rms / max(float(mags[dom_idx]), FFT_NORM_FLOOR) * 100.0, 1)
 
     m1, m2, m3, m4 = st.columns(4)
-    with m1: mcard("Dominant Freq",      f"{dom_freq} Hz", COLORS["cyan"])
-    with m2: mcard("Bandwidth (−10 dB)", f"{bw_hz} Hz",    COLORS["blue"])
-    with m3: mcard("SNR",                f"{min(snr_db, 99.9):.1f} dB", COLORS["green"])
-    with m4: mcard("THD",                f"{thd_pct} %",   COLORS["orange"])
+    with m1:
+        mcard("Dominant Freq",      f"{dom_freq} Hz")
+    with m2:
+        mcard("Bandwidth (−10 dB)", f"{bw_hz} Hz")
+    with m3:
+        mcard("SNR",                f"{min(snr_db, 99.9):.1f} dB")
+    with m4:
+        mcard("THD",                f"{thd_pct} %")
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
-    # Build colour gradient for bars
+    nb = len(freqs_hz)
+    # Bar colours — brighter in dark mode
+    sat = "75%" if T["dark"] else "65%"
+    lgt = "62%" if T["dark"] else "52%"
     bar_colors = [
-        f"hsl({int(200 + i / max(len(freqs_hz)-1, 1) * 100)},70%,55%)"
-        for i in range(len(freqs_hz))
-    ]
+        f"hsl({int(210 + i/max(nb-1, 1)*60)},{sat},{lgt})" for i in range(nb)]
 
-    fig = make_subplots(
-        rows=2, cols=1,
-        subplot_titles=("Magnitude Spectrum", "Power Spectrum (dB)"),
-        vertical_spacing=0.13,
-        row_heights=[0.5, 0.5],
-    )
-    fig.add_trace(
-        go.Bar(x=freqs_hz, y=mags, name="Magnitude",
-               marker=dict(color=bar_colors, line=dict(width=0)),
-               showlegend=False),
-        row=1, col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=freqs_hz, y=power_db, mode="lines",
-                   line=dict(color=COLORS["blue"], width=1.6),
-                   fill="tozeroy",
-                   fillcolor="rgba(59,130,246,0.08)",
-                   showlegend=False),
-        row=2, col=1,
-    )
+    fig = make_subplots(rows=2, cols=1,
+                        subplot_titles=("Magnitude Spectrum",
+                                        "Power Spectrum (dB)"),
+                        vertical_spacing=0.14)
+    fig.add_trace(go.Bar(x=freqs_hz, y=mags, showlegend=False,
+                         marker=dict(color=bar_colors, line=dict(width=0))), row=1, col=1)
+    fig.add_trace(go.Scatter(x=freqs_hz, y=power_db, mode="lines", showlegend=False,
+                             line=dict(color=_C["power"], width=1.8),
+                             fill="tozeroy",
+                             fillcolor=fill_color(_C["power"], FA * 1.2)), row=2, col=1)
 
     for r in (1, 2):
         if 0 < dom_freq <= float(freqs_hz[-1]):
-            fig.add_vline(
-                x=dom_freq, line_dash="dash", line_color=COLORS["orange"],
-                annotation_text=f"f = {dom_freq} Hz",
-                annotation_font=dict(color=COLORS["orange"], size=11),
-                annotation_position="top right",
-                row=r, col=1,
-            )
-        if is_alias and alias_f > 0 and alias_f <= float(freqs_hz[-1]):
-            fig.add_vline(
-                x=alias_f, line_dash="dot", line_color=COLORS["yellow"],
-                annotation_text=f"alias {alias_f:.1f} Hz",
-                annotation_font=dict(color=COLORS["yellow"], size=11),
-                annotation_position="top left",
-                row=r, col=1,
-            )
+            fig.add_vline(x=dom_freq, line_dash="dash", line_color=_C["samp"],
+                          annotation_text=f"{dom_freq} Hz",
+                          annotation_font_color=_C["samp"],
+                          annotation_position="top right", row=r, col=1)
+        if is_alias and 0 < alias_f <= float(freqs_hz[-1]):
+            fig.add_vline(x=alias_f, line_dash="dot", line_color=_C["alias"],
+                          annotation_text=f"alias {alias_f:.1f} Hz",
+                          annotation_font_color=_C["alias"],
+                          annotation_position="top left", row=r, col=1)
 
-    layout = {**CHART_LAYOUT, "height": 700, "showlegend": False}
-    fig.update_layout(**layout)
-    fig.update_xaxes(**AXIS_STYLE, title_text="Frequency (Hz)")
-    fig.update_yaxes(**AXIS_STYLE)
+    a = _ax()
+    fig.update_layout(**_base_layout(740))
+    fig.update_layout(showlegend=False)
+    fig.update_xaxes(title_text="Frequency (Hz)", **a)
+    fig.update_yaxes(**a)
     fig.update_yaxes(title_text="Magnitude", row=1, col=1)
     fig.update_yaxes(title_text="dB",        row=2, col=1)
+    # Fix subplot title colours
+    for ann in fig.layout.annotations:
+        ann.font.color = T["PTXT"]
     st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("📐 FFT Theory & Parameters"):
@@ -923,263 +722,214 @@ with tab_fft:
         st.markdown(f"""
 | Parameter | Value |
 |---|---|
-| FFT size | {n_fft} points (zero-padded to next power of 2) |
-| Window function | Hanning (von Hann) |
+| FFT size | {n_fft} pts (zero-padded → next power of 2) |
+| Window | Hanning (von Hann) |
 | Frequency resolution | {freq_res} Hz / bin |
 | Nyquist limit | {fs // 2} Hz |
 | Dominant frequency | {dom_freq} Hz |
 | Alias frequency | {alias_f:.2f} Hz {'⚠ active' if is_alias else '(no aliasing)'} |
-        """)
-
+""")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — PHASE SPACE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_phase:
-
-    lag = st.slider("Lag k (samples)", 1, min(50, N // 4), 5, key="lag_slider")
+    lag = st.slider("Lag k (samples)", 1, min(
+        50, N_POINTS // 4), 5, key="lag_sl")
     x_ph = noisy[:-lag]
     y_ph = noisy[lag:]
 
-    max_lag  = min(400, len(signal) // 2)
-    mean_s   = float(signal.mean())
-    var_s    = float(np.var(signal))
+    max_lag = min(400, len(signal) // 2)
+    mean_s = float(signal.mean())
+    var_s = float(np.var(signal))
     lags_arr = np.arange(max_lag)
     if var_s > 1e-12:
         auto = np.array([
-            float(np.mean((signal[:N-ll]-mean_s)*(signal[ll:]-mean_s))) / var_s
+            float(np.mean((signal[:N_POINTS-ll] - mean_s)
+                          * (signal[ll:] - mean_s))) / var_s
             for ll in lags_arr
         ])
     else:
         auto = np.zeros(max_lag)
 
-    col1, col2 = st.columns(2, gap="medium")
-    with col1:
-        section_header("01", "Phase Portrait")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Phase Portrait")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=x_ph, y=y_ph, mode="lines",
-            line=dict(color=COLORS["purple"], width=0.9),
-            name=f"x[n] vs x[n−{lag}]",
-        ))
-        apply_theme(fig, height=500,
-                    title=f"Phase portrait — lag = {lag} samples",
-                    xtitle=f"x[n−{lag}]", ytitle="x[n]")
+        fig.add_trace(go.Scatter(x=x_ph, y=y_ph, mode="lines",
+                                 line=dict(color=_C["phase"], width=1.0),
+                                 name=f"x[n] vs x[n−{lag}]"))
+        theme_fig(
+            fig, 520, f"Phase portrait (lag={lag})", xt=f"x[n−{lag}]", yt="x[n]")
         st.plotly_chart(fig, use_container_width=True)
 
-    with col2:
-        section_header("02", "Autocorrelation R[k]")
+    with c2:
+        st.subheader("Autocorrelation  R[k]")
         fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(
-            x=lags_arr, y=auto, mode="lines",
-            line=dict(color=COLORS["pink"], width=1.6),
-            fill="tozeroy",
-            fillcolor="rgba(236,72,153,0.07)",
-            name="R[k]",
-        ))
-        fig2.add_hline(y=0, line_dash="dot",
-                       line_color="rgba(148,163,184,0.2)")
-        apply_theme(fig2, height=500,
-                    title="Normalised autocorrelation",
-                    xtitle="Lag (samples)", ytitle="R[k]")
+        fig2.add_trace(go.Scatter(x=lags_arr, y=auto, mode="lines",
+                                  line=dict(color=_C["auto"], width=1.8),
+                                  fill="tozeroy",
+                                  fillcolor=fill_color(_C["auto"], FA * 1.3),
+                                  name="R[k]"))
+        fig2.add_hline(y=0, line_dash="dot", line_color=T["PZERO"])
+        theme_fig(fig2, 520, "Normalised autocorrelation",
+                  xt="Lag (samples)", yt="R[k]")
         st.plotly_chart(fig2, use_container_width=True)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — FILTER LAB
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_filter:
-
-    rms_orig = float(np.sqrt(np.mean(signal   ** 2)))
-    rms_n    = float(np.sqrt(np.mean(noisy    ** 2)))
-    rms_f    = float(np.sqrt(np.mean(filtered ** 2)))
-    snr_g    = round(20.0 * np.log10(max(rms_f, 1e-12) / max(rms_n, 1e-12)), 2)
-    cutoff   = round(float(fs) / (2.0 * max(filter_win, 1)), 2)
+    rms_orig = float(np.sqrt(np.mean(signal ** 2)))
+    rms_n = float(np.sqrt(np.mean(noisy ** 2)))
+    rms_f = float(np.sqrt(np.mean(filtered ** 2)))
+    snr_g = round(20.0 * np.log10(max(rms_f, FFT_NORM_FLOOR) /
+                                  max(rms_n, FFT_NORM_FLOOR)), 2)
+    cutoff = round(float(fs) / (2.0 * max(filter_win, 1)), 2)
 
     m1, m2, m3, m4, m5 = st.columns(5)
-    with m1: mcard("RMS Original", f"{rms_orig:.4f}", COLORS["green"])
-    with m2: mcard("RMS Noisy",    f"{rms_n:.4f}",    COLORS["red"])
-    with m3: mcard("RMS Filtered", f"{rms_f:.4f}",    COLORS["blue"])
-    with m4: mcard("SNR Gain",     f"{snr_g} dB",     COLORS["purple"])
-    with m5: mcard("−3 dB Cutoff", f"{cutoff} Hz",    COLORS["orange"])
+    with m1:
+        mcard("RMS Original", f"{rms_orig:.4f}")
+    with m2:
+        mcard("RMS Noisy",    f"{rms_n:.4f}")
+    with m3:
+        mcard("RMS Filtered", f"{rms_f:.4f}")
+    with m4:
+        mcard("SNR Gain",     f"{snr_g} dB")
+    with m5:
+        mcard("−3 dB Cutoff", f"{cutoff} Hz")
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.subheader("① Original Signal")
+    fo = go.Figure()
+    fo.add_trace(go.Scatter(x=t, y=signal, mode="lines", name="Original",
+                            line=dict(color=_C["cont"], width=2),
+                            fill="tozeroy", fillcolor=fill_color(_C["cont"], FA)))
+    theme_fig(fo, 330, f"Original — {src_lbl}")
+    st.plotly_chart(fo, use_container_width=True)
 
-    section_header("01", "Original Clean Signal")
-    fig_orig = go.Figure()
-    fig_orig.add_trace(go.Scatter(
-        x=t, y=signal, mode="lines", name="Original",
-        line=dict(color=COLORS["green"], width=2),
-    ))
-    apply_theme(fig_orig, height=320, title=f"Original — {source_label}")
-    st.plotly_chart(fig_orig, use_container_width=True)
+    cn, cf = st.columns(2)
+    with cn:
+        st.subheader("② Noisy")
+        fn = go.Figure()
+        fn.add_trace(go.Scatter(x=t, y=noisy, mode="lines",
+                                name=f"Noisy (σ={noise_level:.1f})",
+                                line=dict(color=_C["noisy"], width=1.2)))
+        theme_fig(fn, 340, f"Noise level {noise_level:.1f}")
+        st.plotly_chart(fn, use_container_width=True)
 
-    col_n, col_f = st.columns(2, gap="medium")
-    with col_n:
-        section_header("02", "Noisy Signal")
-        fig_noisy = go.Figure()
-        fig_noisy.add_trace(go.Scatter(
-            x=t, y=noisy, mode="lines",
-            name=f"Noisy (σ = {noise_level:.1f})",
-            line=dict(color=COLORS["red"], width=1.2),
-        ))
-        apply_theme(fig_noisy, height=340, title=f"Noise level {noise_level:.1f}")
-        st.plotly_chart(fig_noisy, use_container_width=True)
+    with cf:
+        st.subheader("③ Filtered")
+        ff = go.Figure()
+        ff.add_trace(go.Scatter(x=t, y=filtered, mode="lines",
+                                name=f"Filtered (M={filter_win})",
+                                line=dict(color=_C["filt"], width=2.2),
+                                fill="tozeroy", fillcolor=fill_color(_C["filt"], FA * 1.2)))
+        theme_fig(ff, 340, f"FIR M={filter_win} · cutoff ≈ {cutoff} Hz")
+        st.plotly_chart(ff, use_container_width=True)
 
-    with col_f:
-        section_header("03", "Filtered Signal")
-        fig_filt = go.Figure()
-        fig_filt.add_trace(go.Scatter(
-            x=t, y=filtered, mode="lines",
-            name=f"Filtered (M = {filter_win})",
-            line=dict(color=COLORS["blue"], width=2),
-        ))
-        apply_theme(fig_filt, height=340,
-                    title=f"FIR M = {filter_win} · cutoff ≈ {cutoff} Hz")
-        st.plotly_chart(fig_filt, use_container_width=True)
+    st.subheader("④ Noisy vs Filtered Overlay")
+    fc = go.Figure()
+    noisy_line = "rgba(239,68,68,0.60)" if T["dark"] else "rgba(239,68,68,0.45)"
+    fc.add_trace(go.Scatter(x=t, y=noisy, mode="lines",
+                            name=f"Noisy (σ={noise_level:.1f})",
+                            line=dict(color=noisy_line, width=1)))
+    fc.add_trace(go.Scatter(x=t, y=filtered, mode="lines",
+                            name=f"Filtered (M={filter_win})",
+                            line=dict(color=_C["filt"], width=2.5)))
+    theme_fig(fc, 360, "Noisy (red) vs Filtered (cyan)")
+    st.plotly_chart(fc, use_container_width=True)
 
-    section_header("04", "Noisy vs Filtered Comparison")
-    fig_cmp = go.Figure()
-    fig_cmp.add_trace(go.Scatter(
-        x=t, y=noisy, mode="lines",
-        name=f"Noisy (σ = {noise_level:.1f})",
-        line=dict(color=COLORS["red"], width=1.0),
-        opacity=0.6,
-    ))
-    fig_cmp.add_trace(go.Scatter(
-        x=t, y=filtered, mode="lines",
-        name=f"Filtered (M = {filter_win})",
-        line=dict(color=COLORS["blue"], width=2.2),
-    ))
-    apply_theme(fig_cmp, height=380, title="Noisy vs Filtered")
-    st.plotly_chart(fig_cmp, use_container_width=True)
-
-    section_header("05", "Filter Frequency Response |H(f)|")
+    st.subheader("⑤ Filter Frequency Response  |H(f)|")
     omega = np.linspace(0.0, np.pi, 1024)
-    eps   = 1e-9
-    M_f   = float(filter_win)
-    H     = np.clip(
-        np.abs(np.sin(M_f*omega/2+eps) / (M_f*np.sin(omega/2+eps)+eps)),
-        0, 1,
-    )
-    f_ax  = omega / np.pi * (fs / 2.0)
-    fig_hr = go.Figure()
-    fig_hr.add_trace(go.Scatter(
-        x=f_ax, y=H, mode="lines", name="|H(f)|",
-        line=dict(color=COLORS["orange"], width=2.2),
-        fill="tozeroy",
-        fillcolor="rgba(249,115,22,0.07)",
-    ))
-    fig_hr.add_hline(
-        y=0.707, line_dash="dash",
-        line_color="rgba(148,163,184,0.4)",
-        annotation_text="−3 dB (0.707)",
-        annotation_font=dict(color="#94a3b8", size=11),
-        annotation_position="bottom right",
-    )
-    apply_theme(fig_hr, height=360, xtitle="Frequency (Hz)", ytitle="|H(f)|")
-    st.plotly_chart(fig_hr, use_container_width=True)
+    eps = 1e-9
+    M_f = float(filter_win)
+    H = np.clip(np.abs(np.sin(M_f * omega / 2 + eps) /
+                       (M_f * np.sin(omega / 2 + eps) + eps)), 0, 1)
+    f_ax = omega / np.pi * (fs / 2.0)
+    fh = go.Figure()
+    fh.add_trace(go.Scatter(x=f_ax, y=H, mode="lines", name="|H(f)|",
+                            line=dict(color=_C["samp"], width=2.4),
+                            fill="tozeroy", fillcolor=fill_color(_C["samp"], FA)))
+    fh.add_hline(y=0.707, line_dash="dash", line_color=_C["cont"],
+                 annotation_text="−3 dB (0.707)",
+                 annotation_font_color=_C["cont"],
+                 annotation_position="bottom right")
+    theme_fig(fh, 340, xt="Frequency (Hz)", yt="|H(f)|")
+    st.plotly_chart(fh, use_container_width=True)
 
     with st.expander("📐 Filter Theory"):
         st.markdown(f"""
 | Parameter | Value |
 |---|---|
-| Filter type | FIR moving-average (box / rectangular window) |
+| Filter type | FIR moving-average (rectangular window) |
 | Window length M | {filter_win} samples |
 | Approx −3 dB cutoff | {cutoff} Hz |
 | Group delay | {filter_win // 2} samples |
 
-**Response:** `|H(f)| = |sin(Mω/2)| / (M·|sin(ω/2)|)`
-
-Larger M → more noise suppression, more time lag (group delay ≈ M/2 samples).
-        """)
-
+**Response**: `|H(f)| = |sin(Mω/2)| / (M · |sin(ω/2)|)`  
+Larger M → more smoothing, more group delay (M/2 samples).
+""")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — WATERFALL
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_water:
+    st.subheader("Short-Time FFT Waterfall Spectrogram")
+    n_fr2 = 64
+    flen = max(64, N_POINTS // n_fr2)
+    nfft_w = next_pow2(flen)
+    hop = max(1, (N_POINTS - flen) // max(n_fr2 - 1, 1))
+    win_h = np.hanning(flen)
 
-    section_header("01", "Short-Time FFT Waterfall Spectrogram")
-
-    n_frames  = 64
-    frame_len = max(64, N // n_frames)
-    n_fft_w   = next_pow2(frame_len)
-    hop       = max(1, (N - frame_len) // max(n_frames - 1, 1))
-    win_h     = np.hanning(frame_len)
-
-    wfall, t_labels = [], []
-    for i in range(n_frames):
-        start = i * hop
-        end   = start + frame_len
-        if end > N:
+    wfall, tlab = [], []
+    for i in range(n_fr2):
+        s = i * hop
+        e = s + flen
+        if e > N_POINTS:
             break
-        padded = np.zeros(n_fft_w)
-        padded[:frame_len] = noisy[start:end] * win_h
-        wfall.append(np.abs(np.fft.rfft(padded)) / (n_fft_w / 2.0))
-        t_labels.append(round(start / N * duration_eff, 3))
+        p = np.zeros(nfft_w)
+        p[:flen] = noisy[s:e] * win_h
+        wfall.append(np.abs(np.fft.rfft(p)) / (nfft_w / 2.0))
+        tlab.append(round(s / N_POINTS * dur_eff, 3))
 
-    if not wfall:
-        st.warning("Signal too short for waterfall. Increase Duration.")
+    if len(wfall) < 2:
+        st.warning("Signal too short. Increase Duration.")
     else:
-        wfall_arr = np.array(wfall)
-        f_ax_w    = np.fft.rfftfreq(n_fft_w, d=1.0 / fs)
-        z_db      = np.clip(20.0 * np.log10(wfall_arr + 1e-12), -80.0, 0.0)
-
-        fig = go.Figure(go.Heatmap(
-            z=z_db.T, x=t_labels, y=f_ax_w,
-            colorscale="Plasma",
-            zmin=-80, zmax=0,
+        wa = np.array(wfall)
+        faxw = np.fft.rfftfreq(nfft_w, d=1.0 / fs)
+        zdb = np.clip(20.0 * np.log10(wa + 1e-12), DB_FLOOR, 0.0)
+        fw = go.Figure(go.Heatmap(
+            z=zdb.T, x=tlab, y=faxw,
+            colorscale=T["HEAT"],
+            zmin=DB_FLOOR, zmax=0,
             colorbar=dict(
-                title=dict(text="dB", font=dict(color="#94a3b8", size=12)),
-                ticksuffix=" dB",
-                tickfont=dict(color="#94a3b8", size=10, family="JetBrains Mono"),
+                title=dict(text="dB", font=dict(color=T["PTXT"])),
+                tickfont=dict(color=T["PTXT"]),
             ),
         ))
-        fig.update_layout(
-            **{**CHART_LAYOUT, "height": 580},
-            xaxis=dict(**AXIS_STYLE, title_text="Time (s)"),
-            yaxis=dict(**AXIS_STYLE, title_text="Frequency (Hz)"),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        freq_res_w = round(float(fs) / n_fft_w, 3)
-        st.caption(
-            f"Hanning STFT · {len(wfall)} frames · FFT size {n_fft_w} · "
-            f"{freq_res_w} Hz/bin · Hop {hop} samples  ·  "
-            f"Tip: select Chirp waveform for a diagonal frequency sweep"
-        )
-
+        a = _ax()
+        fw.update_layout(**_base_layout(560))
+        fw.update_xaxes(title_text="Time (s)", **a)
+        fw.update_yaxes(title_text="Frequency (Hz)", **a)
+        st.plotly_chart(fw, use_container_width=True)
+        st.caption(f"Hanning STFT · {len(wfall)} frames · FFT {nfft_w} · "
+                   f"{round(fs/nfft_w, 3)} Hz/bin · Hop {hop} samp  |  "
+                   f"Tip: select Chirp for a diagonal frequency sweep")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — LISSAJOUS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_liss:
-
-    col_ctrl, col_plot = st.columns([1, 3], gap="medium")
-
-    with col_ctrl:
-        section_header("▶", "Controls")
-        liss_max     = max(50, freq_eff * 4)
-        liss_default = min(3, liss_max)
-        freq2 = st.slider("Y-axis Freq (Hz)", 1, liss_max, liss_default, key="liss_freq2")
-        phase = st.slider("Phase Offset (°)", 0, 360, 0, 5, key="liss_phase")
-
-        gcd_v = np.gcd(freq_eff, freq2)
+    cp, cc = st.columns([3, 1])
+    with cc:
+        st.markdown("#### Controls")
+        freq2 = st.slider("Y Freq (Hz)", 1, 50, 3, key="lf2")
+        phase = st.slider("Phase (°)",   0, 360, 0, 5, key="lph")
+        gcd_v = int(np.gcd(freq_eff, freq2))
         ratio = f"{freq_eff // gcd_v} : {freq2 // gcd_v}"
-
-        st.markdown(
-            f'<div class="mcard" style="text-align:left;margin-top:12px">'
-            f'<div class="lbl">Frequency Ratio</div>'
-            f'<span class="val" style="color:{COLORS["purple"]}">{ratio}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("---")
+        st.markdown(f"**Ratio:** `{ratio}`")
         st.markdown("""
-**Reference Patterns**
-
+---
 | Ratio | Phase | Shape |
 |---|---|---|
 | 1:1 | 0° | Diagonal |
@@ -1187,147 +937,324 @@ with tab_liss:
 | 1:2 | 90° | Figure-8 |
 | 2:3 | 90° | Pretzel |
 | 3:4 | 90° | Butterfly |
-
-Non-integer ratios → quasi-periodic open paths.
-        """)
-
-    with col_plot:
-        section_header("01", "Lissajous Figure")
-        lcm_f  = freq_eff * freq2 // max(np.gcd(freq_eff, freq2), 1)
+""")
+    with cp:
+        st.subheader("Lissajous Figure")
+        lcm_f = freq_eff * freq2 // max(gcd_v, 1)
         cycles = lcm_f * 6
-        t_liss = np.linspace(0.0, cycles / max(float(min(freq_eff, freq2)), 1.0), 12000)
-        x_l    = amp * np.sin(2 * np.pi * freq_eff * t_liss)
-        y_l    = amp * np.sin(2 * np.pi * freq2    * t_liss + np.radians(phase))
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=x_l, y=y_l, mode="lines",
-            line=dict(color=COLORS["cyan"], width=1.5),
-            name=f"{freq_eff} Hz × {freq2} Hz  φ = {phase}°",
-        ))
-        apply_theme(
-            fig, height=560,
-            title=f"Lissajous  {freq_eff} × {freq2} Hz  ·  ratio {ratio}  ·  φ = {phase}°",
-            xtitle="X  (A · sin 2πf₁t)",
-            ytitle="Y  (A · sin(2πf₂t + φ))",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
+        t_l = np.linspace(
+            0.0, cycles / max(float(min(freq_eff, freq2)), 1.0), 12_000)
+        x_l = amp * np.sin(2.0 * np.pi * freq_eff * t_l)
+        y_l = amp * np.sin(2.0 * np.pi * freq2 * t_l + np.radians(phase))
+        fl = go.Figure()
+        fl.add_trace(go.Scatter(x=x_l, y=y_l, mode="lines",
+                                line=dict(color=_C["phase"], width=1.6),
+                                name=f"{freq_eff}×{freq2} Hz φ={phase}°"))
+        theme_fig(fl, 540, f"Lissajous {freq_eff}×{freq2} Hz · {ratio} · φ={phase}°",
+                  xt="X = A·sin(2πf₁t)", yt="Y = A·sin(2πf₂t + φ)")
+        st.plotly_chart(fl, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 7 — AUDIO ANALYZER
+# TAB 7 — 3D MODELS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_3d:
+    st.subheader("3D Signal Visualisations")
+    st.caption("Rotate · zoom · pan with mouse or trackpad.")
+
+    d3c = st.radio("Select 3D model",
+                   ["① 3D Waveform Ribbon",
+                    "② Freq–Time–Amplitude Surface",
+                    "③ 3D Lissajous Helix",
+                    "④ Sampling Constellation"],
+                   horizontal=True)
+
+    def _3dl(title="", height=660):
+        sbg = T["PPBG"]
+        gc = T["PGRID"]
+        axd = dict(
+            gridcolor=gc,
+            zerolinecolor=T["PZERO"],
+            color=T["PTXT"],
+            tickfont=dict(size=10, color=T["PTICK"]),
+            title_font=dict(color=T["PTXT"], size=12),
+        )
+        return dict(
+            paper_bgcolor=T["PBG"],
+            font=dict(color=T["PTXT"], size=11,
+                      family="'IBM Plex Mono',monospace"),
+            height=height,
+            margin=dict(l=0, r=0, t=54, b=0),
+            title=dict(text=title, font=dict(color=T["PTXT"], size=13,
+                                             family="'DM Sans',sans-serif")),
+            transition=dict(duration=350, easing="cubic-in-out"),
+            hoverlabel=dict(bgcolor=T["PBG"], bordercolor=T["PLINE"],
+                            font=dict(color=T["PTXT"],
+                                      family="'IBM Plex Mono',monospace", size=11)),
+            legend=dict(bgcolor=T["PLEG"], bordercolor=T["PLINE"], borderwidth=1,
+                        font=dict(color=T["PTXT"], size=11)),
+            scene=dict(
+                bgcolor=sbg,
+                xaxis=dict(**axd),
+                yaxis=dict(**axd),
+                zaxis=dict(**axd),
+                camera=dict(eye=dict(x=1.5, y=1.5, z=0.8),
+                            up=dict(x=0, y=0, z=1)),
+            ),
+        )
+
+    # ── MODEL 1: 3D Waveform Ribbon ───────────────────────────────────────────
+    if d3c.startswith("①"):
+        n_strips = 8
+        t3 = np.linspace(0.0, dur_eff, N_POINTS // 4, endpoint=False)
+        f3d = go.Figure()
+        for i in range(n_strips):
+            s3 = gen_signal(t3, freq_eff, amp * max(0.2, 1 - i * 0.06),
+                            signal_type, dur_eff)
+            hue = int(210 + i / max(n_strips - 1, 1) * 80)
+            lgt = "62%" if T["dark"] else "50%"
+            col = f"hsl({hue},80%,{lgt})"
+            f3d.add_trace(go.Scatter3d(
+                x=t3, y=np.full_like(t3, i * 0.35), z=s3, mode="lines",
+                line=dict(color=col, width=3),
+                name="Strip 1" if i == 0 else f"Strip {i+1}",
+                showlegend=(i == 0),
+            ))
+        ts3 = np.arange(0.0, dur_eff, 1.0 / fs)
+        samp3 = gen_signal(ts3, freq_eff, amp, signal_type, dur_eff)
+        f3d.add_trace(go.Scatter3d(
+            x=ts3, y=np.zeros_like(ts3), z=samp3, mode="markers",
+            marker=dict(size=4, color=_C["samp"],
+                        line=dict(color=T["PBG"], width=0.5)),
+            name=f"Samples Fs={fs}Hz",
+        ))
+        lay = _3dl(f"3D Waveform Ribbon — {signal_type} {freq_eff} Hz")
+        lay["scene"]["xaxis"]["title"] = "Time (s)"
+        lay["scene"]["yaxis"]["title"] = "Strip offset"
+        lay["scene"]["zaxis"]["title"] = "Amplitude"
+        f3d.update_layout(**lay)
+        st.plotly_chart(f3d, use_container_width=True)
+        st.info("Orange dots = sample points on the front strip. "
+                "Rotate to see the ribbon depth perspective.")
+
+    # ── MODEL 2: Freq–Time–Amplitude Surface ──────────────────────────────────
+    elif d3c.startswith("②"):
+        nfr3 = 48
+        fl3 = max(64, N_POINTS // nfr3)
+        nf3 = next_pow2(fl3)
+        hp3 = max(1, (N_POINTS - fl3) // max(nfr3 - 1, 1))
+        wh3 = np.hanning(fl3)
+        wf3, tl3 = [], []
+        for i in range(nfr3):
+            s3 = i * hp3
+            e3 = s3 + fl3
+            if e3 > N_POINTS:
+                break
+            p3 = np.zeros(nf3)
+            p3[:fl3] = noisy[s3:e3] * wh3
+            wf3.append(np.abs(np.fft.rfft(p3)) / (nf3 / 2.0))
+            tl3.append(round(s3 / N_POINTS * dur_eff, 3))
+
+        if len(wf3) < 2:
+            st.warning("Signal too short. Increase Duration.")
+        else:
+            wa3 = np.array(wf3)
+            fa3 = np.fft.rfftfreq(nf3, d=1.0 / fs)
+            fmi = min(len(fa3), max(2, len(fa3) // 2))
+            Z3 = np.clip(20.0 * np.log10(wa3[:, :fmi] + 1e-12), DB_FLOOR, 0)
+            f3d = go.Figure(go.Surface(
+                x=np.array(tl3), y=fa3[:fmi], z=Z3.T,
+                colorscale=T["SURF"], cmin=DB_FLOOR, cmax=0,
+                colorbar=dict(
+                    title=dict(text="dB", font=dict(color=T["PTXT"])),
+                    tickfont=dict(color=T["PTXT"]),
+                ),
+                contours=dict(z=dict(show=True, usecolormap=True,
+                                     highlightcolor="white", project_z=True)),
+                lighting=dict(ambient=0.5, diffuse=0.8, roughness=0.5,
+                              specular=0.3, fresnel=0.2),
+                lightposition=dict(x=100, y=200, z=0),
+            ))
+            lay3 = _3dl("Frequency–Time–Amplitude Surface (dB)")
+            lay3["scene"]["camera"]["eye"] = dict(x=1.8, y=-1.6, z=1.2)
+            lay3["scene"]["xaxis"]["title"] = "Time (s)"
+            lay3["scene"]["yaxis"]["title"] = "Frequency (Hz)"
+            lay3["scene"]["zaxis"]["title"] = "Power (dB)"
+            f3d.update_layout(**lay3)
+            st.plotly_chart(f3d, use_container_width=True)
+            st.info("Drag to orbit. Bright peaks = dominant frequencies. "
+                    "Try Chirp waveform for a rising ridge.")
+
+    # ── MODEL 3: 3D Lissajous Helix ──────────────────────────────────────────
+    elif d3c.startswith("③"):
+        t_h = np.linspace(0, 8 * np.pi, 6_000)
+        x_h = np.sin(t_h)
+        y_h = np.sin(2 * t_h + np.pi / 4)
+        z_h = t_h / (8 * np.pi)
+
+        proj_col = "rgba(148,163,184,0.30)" if T["dark"] else "rgba(100,116,139,0.20)"
+        f3d = go.Figure()
+        f3d.add_trace(go.Scatter3d(
+            x=x_h, y=y_h, z=z_h, mode="lines",
+            line=dict(color=z_h, colorscale="Rainbow", width=4),
+            name="Lissajous helix",
+        ))
+        f3d.add_trace(go.Scatter3d(
+            x=x_h, y=y_h, z=np.zeros_like(z_h), mode="lines",
+            line=dict(color=proj_col, width=1), name="XY projection",
+        ))
+        f3d.add_trace(go.Scatter3d(
+            x=x_h, y=np.full_like(y_h, 1.1), z=z_h, mode="lines",
+            line=dict(color=proj_col, width=1), name="XZ projection",
+        ))
+        lh = _3dl("3D Lissajous Helix (1:2, φ=45°) — time as Z-depth")
+        lh["scene"]["camera"]["eye"] = dict(x=1.6, y=1.6, z=1.0)
+        lh["scene"]["xaxis"]["title"] = "X = sin(t)"
+        lh["scene"]["yaxis"]["title"] = "Y = sin(2t + π/4)"
+        lh["scene"]["zaxis"]["title"] = "Time (normalised)"
+        f3d.update_layout(**lh)
+        st.plotly_chart(f3d, use_container_width=True)
+        st.info("Colour encodes time. Shadow projections show 2D Lissajous "
+                "on each coordinate plane.")
+
+    # ── MODEL 4: Sampling Constellation ──────────────────────────────────────
+    else:
+        t4 = np.linspace(0.0, dur_eff, N_POINTS // 2, endpoint=False)
+        nt4 = len(t4) // 2
+        sig4 = gen_signal(t4[:nt4], freq_eff, amp, signal_type, dur_eff)
+        ts4 = np.arange(0.0, dur_eff, 1.0 / fs)
+        samp4 = gen_signal(ts4, freq_eff, amp, signal_type, dur_eff)
+
+        f3d = go.Figure()
+        f3d.add_trace(go.Scatter3d(
+            x=t4[:nt4], y=np.zeros(nt4), z=sig4, mode="lines",
+            line=dict(color=_C["cont"], width=3),
+            name=f"Signal {freq_eff} Hz",
+        ))
+        f3d.add_trace(go.Scatter3d(
+            x=ts4, y=np.zeros_like(ts4), z=samp4, mode="markers",
+            marker=dict(size=5, color=_C["samp"],
+                        line=dict(color=T["PBG"], width=0.8)),
+            name=f"Samples Fs={fs}Hz",
+        ))
+        if is_alias:
+            alias4 = gen_signal(t4[:nt4], alias_f, amp, "Sine", dur_eff)
+            f3d.add_trace(go.Scatter3d(
+                x=t4[:nt4], y=np.full(nt4, 0.3), z=alias4, mode="lines",
+                line=dict(color=_C["alias"], width=2),
+                opacity=0.7,
+                name=f"Alias {alias_f:.1f}Hz",
+            ))
+        l4 = _3dl(
+            f"Sampling Constellation — {signal_type} {freq_eff}Hz · Fs={fs}Hz")
+        l4["scene"]["camera"]["eye"] = dict(x=2.0, y=-1.0, z=1.0)
+        l4["scene"]["xaxis"]["title"] = "Time (s)"
+        l4["scene"]["yaxis"]["title"] = "Channel"
+        l4["scene"]["zaxis"]["title"] = "Amplitude"
+        f3d.update_layout(**l4)
+        st.plotly_chart(f3d, use_container_width=True)
+        if is_alias:
+            st.error(f"Alias ribbon at {alias_f:.2f} Hz (semi-transparent) — "
+                     f"increase Fs ≥ {nyquist} Hz to remove it.")
+        else:
+            st.success("No aliasing. Fs meets Nyquist criterion ✓")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 8 — AUDIO ANALYZER
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_audio:
-
-    section_header("◎", "Audio File Analyzer")
-
-    if "audio_data" not in st.session_state:
-        st.markdown("""
-        <div class="info-box">
-            <span class="icon">📂</span>
-            <strong>No audio file loaded</strong>
-            Upload a WAV file using the sidebar panel to analyse it here
-            and use it as the signal source in all other modules.
-        </div>
-        """, unsafe_allow_html=True)
+    st.subheader("Audio File Analyzer")
+    if "_adata" not in st.session_state:
+        st.info("📂 Upload a WAV file via the **sidebar** to analyse it here "
+                "and use it as the signal source for all modules.")
     else:
-        audio = st.session_state["audio_data"]
-        rate  = st.session_state["audio_rate"]
+        audio = st.session_state["_adata"]
+        rate = st.session_state["_arate"]
         a_dur = len(audio) / rate
 
         m1, m2, m3, m4 = st.columns(4)
-        with m1: mcard("Sample Rate", f"{rate} Hz",      COLORS["blue"])
-        with m2: mcard("Channels",    "1 (mono)",        COLORS["cyan"])
-        with m3: mcard("Duration",    f"{a_dur:.2f} s",  COLORS["purple"])
-        with m4: mcard("Samples",     f"{len(audio):,}", COLORS["indigo"])
+        with m1:
+            mcard("Sample Rate", f"{rate} Hz")
+        with m2:
+            mcard("Channels",    "1 (L)")
+        with m3:
+            mcard("Duration",    f"{a_dur:.2f} s")
+        with m4:
+            mcard("Samples",     f"{len(audio):,}")
 
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-        clip   = audio[: rate * 10]
+        clip = audio[:rate * 10]
         t_clip = np.linspace(0.0, len(clip) / rate, len(clip), endpoint=False)
 
-        section_header("01", "Waveform")
+        st.subheader("Waveform")
         ds = max(1, len(clip) // 4000)
-        fig_w = go.Figure()
-        fig_w.add_trace(go.Scatter(
-            x=t_clip[::ds], y=clip[::ds], mode="lines",
-            line=dict(color=COLORS["green"], width=0.9), name="Waveform",
-        ))
-        apply_theme(fig_w, height=320, xtitle="Time (s)", ytitle="Amplitude")
-        st.plotly_chart(fig_w, use_container_width=True)
+        fw2 = go.Figure()
+        fw2.add_trace(go.Scatter(x=t_clip[::ds], y=clip[::ds], mode="lines",
+                                 line=dict(color=_C["cont"], width=0.9),
+                                 fill="tozeroy",
+                                 fillcolor=fill_color(_C["cont"], FA),
+                                 name="Waveform"))
+        theme_fig(fw2, 330, xt="Time (s)", yt="Amplitude")
+        st.plotly_chart(fw2, use_container_width=True)
 
-        section_header("02", "Frequency Spectrum")
-        clip_fft = clip[: min(len(clip), rate * 2)]
-        n_fft_a  = next_pow2(max(len(clip_fft), 4))
-        padded_a = np.zeros(n_fft_a)
-        padded_a[: len(clip_fft)] = clip_fft * np.hanning(len(clip_fft))
-        spec = np.abs(np.fft.rfft(padded_a)) / (n_fft_a / 2.0)
-        fa   = np.fft.rfftfreq(n_fft_a, d=1.0 / rate)
+        st.subheader("Frequency Spectrum")
+        clip_fft = clip[:min(len(clip), rate * 2)]
+        nfa = next_pow2(max(len(clip_fft), 4))
+        pada = np.zeros(nfa)
+        pada[:len(clip_fft)] = clip_fft * np.hanning(len(clip_fft))
+        spec = np.abs(np.fft.rfft(pada)) / (nfa / 2.0)
+        fa = np.fft.rfftfreq(nfa, d=1.0 / rate)
+        nfa2 = len(fa)
+        sat2 = "75%" if T["dark"] else "65%"
+        lgt2 = "62%" if T["dark"] else "52%"
+        sc = [
+            f"hsl({int(210 + i/max(nfa2-1, 1)*60)},{sat2},{lgt2})" for i in range(nfa2)]
+        fs2 = go.Figure()
+        fs2.add_trace(go.Bar(x=fa, y=spec, showlegend=False,
+                             marker=dict(color=sc, line=dict(width=0))))
+        theme_fig(fs2, 320, xt="Frequency (Hz)", yt="Magnitude")
+        st.plotly_chart(fs2, use_container_width=True)
 
-        fig_s = go.Figure()
-        fig_s.add_trace(go.Scatter(
-            x=fa, y=spec, mode="lines",
-            line=dict(color=COLORS["blue"], width=1.1),
-            fill="tozeroy",
-            fillcolor="rgba(59,130,246,0.07)",
-            name="Magnitude",
-        ))
-        apply_theme(fig_s, height=320, xtitle="Frequency (Hz)", ytitle="Magnitude")
-        st.plotly_chart(fig_s, use_container_width=True)
-
-        section_header("03", "Spectrogram (STFT)")
+        st.subheader("Spectrogram (STFT)")
         frame_sz = min(2048, max(64, len(clip) // 200))
-        hop_sz   = max(1, frame_sz // 4)
-        n_fr     = (len(clip) - frame_sz) // hop_sz
+        hop_sz = max(1, frame_sz // 4)
+        n_fr3 = (len(clip) - frame_sz) // hop_sz
 
-        if n_fr < 2:
-            st.info("Audio too short for spectrogram (need > 0.5 s).", icon="ℹ️")
+        if n_fr3 < 2:
+            st.info("Audio too short for spectrogram (need > 0.5 s).")
         else:
-            n_fft_sg = next_pow2(frame_sz)
-            win_sg   = np.hanning(frame_sz)
-            sgram    = np.zeros((n_fr, n_fft_sg // 2 + 1))
-            for i in range(n_fr):
-                ch = clip[i * hop_sz: i * hop_sz + frame_sz] * win_sg
-                sgram[i] = np.abs(np.fft.rfft(ch, n=n_fft_sg)) / (n_fft_sg / 2.0)
-
-            fa2  = np.fft.rfftfreq(n_fft_sg, d=1.0 / rate)
-            ta2  = np.arange(n_fr) * hop_sz / rate
-            z_sg = np.clip(20.0 * np.log10(sgram.T + 1e-12), -80.0, 0.0)
-
-            fig_sg = go.Figure(go.Heatmap(
-                z=z_sg, x=ta2, y=fa2,
-                colorscale="Plasma",
-                zmin=-80, zmax=0,
+            nsg = next_pow2(frame_sz)
+            wsg = np.hanning(frame_sz)
+            sgram = np.zeros((n_fr3, nsg // 2 + 1))
+            for i in range(n_fr3):
+                ch = clip[i * hop_sz: i * hop_sz + frame_sz] * wsg
+                sgram[i] = np.abs(np.fft.rfft(ch, n=nsg)) / (nsg / 2.0)
+            fa2 = np.fft.rfftfreq(nsg, d=1.0 / rate)
+            ta2 = np.arange(n_fr3) * hop_sz / rate
+            zsg = np.clip(20.0 * np.log10(sgram.T + 1e-12), DB_FLOOR, 0.0)
+            fsg = go.Figure(go.Heatmap(
+                z=zsg, x=ta2, y=fa2,
+                colorscale=T["HEAT"],
+                zmin=DB_FLOOR, zmax=0,
                 colorbar=dict(
-                    title=dict(text="dB", font=dict(color="#94a3b8", size=12)),
-                    tickfont=dict(color="#94a3b8", size=10, family="JetBrains Mono"),
+                    title=dict(text="dB", font=dict(color=T["PTXT"])),
+                    tickfont=dict(color=T["PTXT"]),
                 ),
             ))
-            fig_sg.update_layout(
-                **{**CHART_LAYOUT, "height": 480},
-                xaxis=dict(**AXIS_STYLE, title_text="Time (s)"),
-                yaxis=dict(**AXIS_STYLE, title_text="Frequency (Hz)"),
-            )
-            st.plotly_chart(fig_sg, use_container_width=True)
-            st.caption(
-                f"STFT · Frame {frame_sz} · Hop {hop_sz} · "
-                f"FFT {n_fft_sg} · {n_fr} frames"
-            )
+            a = _ax()
+            fsg.update_layout(**_base_layout(460))
+            fsg.update_xaxes(title_text="Time (s)", **a)
+            fsg.update_yaxes(title_text="Frequency (Hz)", **a)
+            st.plotly_chart(fsg, use_container_width=True)
+            st.caption(f"STFT · Frame {frame_sz} · Hop {hop_sz} · "
+                       f"FFT {nsg} · {n_fr3} frames")
 
-
-# ── Footer ─────────────────────────────────────────────────────────────────────
+# ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown(
-    "<div style='display:flex;align-items:center;justify-content:space-between;"
-    "flex-wrap:wrap;gap:8px;padding:4px 0'>"
-    "<span style='font-size:11px;color:#334155'>"
-    "DSP Pro Lab &nbsp;·&nbsp; Team <strong style='color:#06b6d4'>8vaults</strong>"
+    "<small style='color:#64748b'>"
+    "DSP Pro Lab &nbsp;·&nbsp; Team <b>8vaults</b>"
     " &nbsp;·&nbsp; Problem Statement 18 — Sampling &amp; Aliasing"
-    " &nbsp;·&nbsp; Nyquist–Shannon Theorem"
-    "</span>"
-    "<span style='font-size:11px;color:#1e2631'>"
-    "Streamlit · NumPy · Plotly"
-    "</span>"
-    "</div>",
+    " &nbsp;·&nbsp; Nyquist–Shannon: Fs ≥ 2·f_max"
+    " &nbsp;·&nbsp; Streamlit · NumPy · Plotly"
+    "</small>",
     unsafe_allow_html=True,
 )
