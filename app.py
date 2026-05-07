@@ -1,7 +1,7 @@
 """
 DSP Pro Lab — MIT 6.003 Style  |  Team: 8vaults
 Problem Statement 18: Sampling & Aliasing Visual Demonstrator
-v8 — Auto light/dark (no toggle), fixed annotation overlaps, clean Streamlit Cloud deploy
+v9 — Fixed: white plot backgrounds, no text overlap, clean light/dark sync
 """
 
 import io
@@ -22,61 +22,55 @@ st.set_page_config(
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTO THEME DETECTION
-# Streamlit exposes its theme in the DOM. We read it once via JS and store it
-# in st.session_state so Python can use it for Plotly colours.
-# On Streamlit Cloud, users set their theme in the top-right menu — no toggle needed.
 # ══════════════════════════════════════════════════════════════════════════════
-
-# Inject a tiny JS snippet that reads Streamlit's active theme and writes it
-# to a hidden input element, then we read it back via st.query_params trick.
-# Since we can't do async JS→Python in real-time, we use a practical fallback:
-# detect via the background colour class that Streamlit adds to the root element.
-
-# Practical approach: use st.get_option for base theme, fall back to "light"
 try:
-    _base = st.get_option("theme.base")  # "light" or "dark" or None
+    _base = st.get_option("theme.base")
     DARK = (_base == "dark")
 except Exception:
     DARK = False
 
 # ══════════════════════════════════════════════════════════════════════════════
-# THEME TOKENS — single source of truth, no toggle
+# THEME TOKENS
 # ══════════════════════════════════════════════════════════════════════════════
 def _theme(dark: bool) -> dict:
     if dark:
         return dict(
             dark=True,
-            PBG="rgba(0,0,0,0)",        # transparent → Streamlit bg shows through
-            PPBG="rgba(13,18,32,0.6)",
+            # Plot backgrounds — fully transparent so Streamlit's dark bg shows
+            PBG="rgba(0,0,0,0)",
+            PPBG="rgba(17,24,39,0.85)",        # dark card bg for plot area
             PTXT="#e2e8f0",
             PTICK="#94a3b8",
-            PGRID="rgba(148,163,184,0.10)",
-            PZERO="rgba(99,179,237,0.25)",
-            PLINE="rgba(148,163,184,0.15)",
-            PLEG="rgba(17,24,39,0.90)",
+            PGRID="rgba(148,163,184,0.12)",
+            PZERO="rgba(99,179,237,0.30)",
+            PLINE="rgba(148,163,184,0.18)",
+            PLEG="rgba(17,24,39,0.92)",
             HEAT="Plasma",
             SURF="Plasma",
-            FA=0.13,
+            FA=0.15,
+            ANN_BG="rgba(17,24,39,0.80)",      # annotation badge background
         )
     else:
         return dict(
             dark=False,
+            # FIX: white plot backgrounds, not grey
             PBG="rgba(0,0,0,0)",
-            PPBG="rgba(248,250,252,0.8)",
-            PTXT="#1e3a5f",
-            PTICK="#64748b",
-            PGRID="rgba(100,116,139,0.10)",
-            PZERO="rgba(37,99,235,0.18)",
-            PLINE="rgba(100,116,139,0.18)",
-            PLEG="rgba(255,255,255,0.96)",
+            PPBG="rgba(255,255,255,1.0)",       # pure white plot area
+            PTXT="#0f172a",
+            PTICK="#475569",
+            PGRID="rgba(71,85,105,0.10)",
+            PZERO="rgba(37,99,235,0.20)",
+            PLINE="rgba(71,85,105,0.15)",
+            PLEG="rgba(255,255,255,0.98)",
             HEAT="Blues",
             SURF="Viridis",
-            FA=0.07,
+            FA=0.08,
+            ANN_BG="rgba(255,255,255,0.90)",   # annotation badge background
         )
 
 T = _theme(DARK)
 
-# Signal palette — identical in both modes
+# Signal palette
 _C = {
     "cont":  "#3b82f6",
     "samp":  "#f97316",
@@ -89,7 +83,7 @@ _C = {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CSS — fully CSS-variable-driven, respects Streamlit's own light/dark class
+# CSS
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -103,7 +97,7 @@ st.markdown("""
   --bg-input:   #f0f3fa;
   --txt-p:      #0f172a;
   --txt-s:      #475569;
-  --txt-m:      #94a3b8;
+  --txt-m:      #64748b;
   --accent:     #2563eb;
   --accent-sub: rgba(37,99,235,0.08);
   --bdr:        rgba(148,163,184,0.22);
@@ -116,28 +110,23 @@ st.markdown("""
   --ease:       cubic-bezier(0.25,0.46,0.45,0.94);
 }
 
-/* ── Tokens: dark — triggered by Streamlit's own class ─────── */
-[data-theme="dark"],
-.st-emotion-cache-1dp5vir,
-[class*="dark"] :root,
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-page:    #0a0e1a;
-    --bg-card:    #111827;
-    --bg-sidebar: #0d1220;
-    --bg-input:   #1e2d45;
-    --txt-p:      #f1f5f9;
-    --txt-s:      #94a3b8;
-    --txt-m:      #64748b;
-    --accent-sub: rgba(37,99,235,0.14);
-    --bdr:        rgba(148,163,184,0.12);
-    --bdr-s:      rgba(148,163,184,0.22);
-    --sh-sm:      0 1px 4px rgba(0,0,0,0.40);
-    --sh-md:      0 4px 24px rgba(37,99,235,0.20);
-    --sh-lg:      0 16px 48px rgba(37,99,235,0.24),0 4px 12px rgba(0,0,0,0.40);
-    --ok-bg:      rgba(16,185,129,0.12); --ok-txt:#34d399; --ok-bdr:rgba(16,185,129,0.3);
-    --wn-bg:      rgba(239,68,68,0.10);  --wn-txt:#f87171; --wn-bdr:rgba(239,68,68,0.25);
-  }
+/* ── Tokens: dark ─────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-page:    #0a0e1a;
+  --bg-card:    #111827;
+  --bg-sidebar: #0d1220;
+  --bg-input:   #1e2d45;
+  --txt-p:      #f1f5f9;
+  --txt-s:      #94a3b8;
+  --txt-m:      #64748b;
+  --accent-sub: rgba(37,99,235,0.14);
+  --bdr:        rgba(148,163,184,0.12);
+  --bdr-s:      rgba(148,163,184,0.22);
+  --sh-sm:      0 1px 4px rgba(0,0,0,0.40);
+  --sh-md:      0 4px 24px rgba(37,99,235,0.20);
+  --sh-lg:      0 16px 48px rgba(37,99,235,0.24),0 4px 12px rgba(0,0,0,0.40);
+  --ok-bg:      rgba(16,185,129,0.12); --ok-txt:#34d399; --ok-bdr:rgba(16,185,129,0.3);
+  --wn-bg:      rgba(239,68,68,0.10);  --wn-txt:#f87171; --wn-bdr:rgba(239,68,68,0.25);
 }
 
 /* ── Global ─────────────────────────────────────────────────── */
@@ -149,7 +138,7 @@ html, body,
   box-sizing: border-box;
 }
 
-/* ── Text colours — let Streamlit handle backgrounds ───────── */
+/* ── Text colours ───────────────────────────────────────────── */
 .stMarkdown, .stMarkdown p, .stMarkdown li,
 p, span, li, td, th,
 .element-container p           { color: var(--txt-p) !important; }
@@ -196,10 +185,6 @@ code, pre, .stCode             { font-family: 'IBM Plex Mono', monospace !import
 ::-webkit-scrollbar-thumb       { background: var(--bdr-s); border-radius: 999px; }
 hr                              { border-color: var(--bdr) !important; }
 
-/* ════════════════════════════════════════════════════════════════
-   CUSTOM COMPONENTS
-   ════════════════════════════════════════════════════════════════ */
-
 /* ── Hero header ────────────────────────────────────────────── */
 .dsp-header {
   position: relative; overflow: hidden;
@@ -233,7 +218,7 @@ hr                              { border-color: var(--bdr) !important; }
   padding: 3px 13px; font-size: 10px; font-weight: 600; color: #dbeafe !important; letter-spacing: .06em;
 }
 
-/* ── Theme hint banner (replaces toggle) ─────────────────────── */
+/* ── Theme hint banner ─────────────────────────────────────── */
 .theme-hint {
   font-size: 11px; color: var(--txt-m) !important;
   padding: 6px 10px; border-radius: 7px;
@@ -284,12 +269,12 @@ st.markdown("""
 # ══════════════════════════════════════════════════════════════════════════════
 # CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-N_POINTS    = 4_000
+N_POINTS       = 4_000
 FFT_NORM_FLOOR = 1e-12
-DB_FLOOR    = -80.0
+DB_FLOOR       = -80.0
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR — no theme toggle
+# SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("""
@@ -410,9 +395,10 @@ def fill_color(hex_color: str, alpha: float) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PLOT HELPERS — all use T (resolved once at the top)
+# PLOT HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 def _ax():
+    """Axis style dict — white bg friendly."""
     return dict(
         gridcolor=T["PGRID"],
         zerolinecolor=T["PZERO"],
@@ -422,41 +408,43 @@ def _ax():
         linewidth=1,
         tickfont=dict(size=10, color=T["PTICK"], family="'IBM Plex Mono',monospace"),
         title_font=dict(color=T["PTXT"], size=11),
+        showgrid=True,
+        mirror=True,                  # FIX: draws border on all 4 sides (no open edges)
     )
 
 
 def _base_layout(height=420, title=""):
     d = dict(
-        paper_bgcolor=T["PBG"],
-        plot_bgcolor=T["PPBG"],
+        paper_bgcolor="rgba(0,0,0,0)",   # transparent paper always
+        plot_bgcolor=T["PPBG"],          # white in light, dark in dark
         font=dict(color=T["PTXT"], size=11, family="'IBM Plex Mono',monospace"),
         legend=dict(
             bgcolor=T["PLEG"],
             bordercolor=T["PLINE"],
             borderwidth=1,
             font=dict(color=T["PTXT"], size=10),
-            # ── FIX: keep legend inside plot area, away from annotations ──
-            x=1.0, y=1.0, xanchor="right", yanchor="top",
+            # FIX: position legend inside top-right, with padding so it never overlaps title
+            x=0.99, y=0.99, xanchor="right", yanchor="top",
         ),
-        margin=dict(l=60, r=20, t=56, b=52),
+        margin=dict(l=64, r=24, t=64, b=52),   # FIX: extra top margin for title
         height=height,
         transition=dict(duration=300, easing="cubic-in-out"),
         hovermode="x unified",
         hoverlabel=dict(
-            bgcolor=T["PBG"],
+            bgcolor=T["ANN_BG"],
             bordercolor=T["PLINE"],
             font=dict(color=T["PTXT"], family="'IBM Plex Mono',monospace", size=10),
             namelength=-1,
         ),
     )
     if title:
-        # Trim long titles to avoid overlap
-        short_title = title if len(title) <= 70 else title[:67] + "…"
+        short_title = title if len(title) <= 65 else title[:62] + "…"
         d["title"] = dict(
             text=short_title,
-            font=dict(color=T["PTXT"], size=11, family="'DM Sans',sans-serif"),
+            font=dict(color=T["PTXT"], size=12, family="'DM Sans',sans-serif", weight=600),
             x=0.0, xanchor="left",
-            pad=dict(l=0),
+            y=0.98, yanchor="top",
+            pad=dict(l=4, t=4),
         )
     return d
 
@@ -591,7 +579,7 @@ with tab_scope:
         fig2.add_trace(go.Scatter(x=ts, y=sampled, mode="markers",
                                   name=f"Fs={fs} Hz",
                                   marker=dict(color=_C["samp"], size=6,
-                                              line=dict(color=T["PBG"], width=1))))
+                                              line=dict(color=T["PPBG"], width=1))))
         theme_fig(fig2, 400, f"Fs={fs} Hz · {len(ts)} samples · T={1/fs*1000:.1f} ms")
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -604,12 +592,11 @@ with tab_scope:
     fig3.add_trace(go.Scatter(x=ts, y=sampled, mode="markers",
                               name=f"Samples Fs={fs}Hz",
                               marker=dict(color=_C["samp"], size=5,
-                                          line=dict(color=T["PBG"], width=1))))
+                                          line=dict(color=T["PPBG"], width=1))))
     if is_alias:
         fig3.add_trace(go.Scatter(x=t, y=alias_sig, mode="lines",
                                   name=f"Alias {alias_f:.2f} Hz",
                                   line=dict(color=_C["alias"], width=2, dash="dash")))
-    # ── FIX: use subtitle text instead of cramming into chart title ──
     note = f"⚠ Fs={fs} < Nyquist {nyquist}" if is_alias else f"✓ Fs={fs} ≥ Nyquist {nyquist}"
     theme_fig(fig3, 420, f"Alias = {alias_f:.2f} Hz  [{note}]")
     st.plotly_chart(fig3, use_container_width=True)
@@ -647,7 +634,7 @@ with tab_fft:
     fig = make_subplots(
         rows=2, cols=1,
         subplot_titles=("Magnitude Spectrum", "Power Spectrum (dB)"),
-        vertical_spacing=0.16,
+        vertical_spacing=0.18,          # FIX: more space between subplots
     )
     fig.add_trace(go.Bar(x=freqs_hz, y=mags, showlegend=False,
                          marker=dict(color=bar_colors, line=dict(width=0))), row=1, col=1)
@@ -656,42 +643,61 @@ with tab_fft:
                              fill="tozeroy",
                              fillcolor=fill_color(_C["power"], FA * 1.2)), row=2, col=1)
 
-    # ── FIX: use annotation positions that don't clash ──
-    ann_positions = {"top right": True, "top left": False}
+    # FIX: Separate vertical lines for each subplot with non-overlapping annotations.
+    # Row 1: dominant freq annotation at top-right, alias at top-left (different yshift)
+    # Row 2: same pattern but use annotation_position carefully
     for r in (1, 2):
         if 0 < dom_freq <= float(freqs_hz[-1]):
-            fig.add_vline(x=dom_freq, line_dash="dash", line_color=_C["samp"],
-                          annotation=dict(
-                              text=f"f={dom_freq}Hz",
-                              font=dict(color=_C["samp"], size=10),
-                              bgcolor="rgba(0,0,0,0)",
-                              bordercolor="rgba(0,0,0,0)",
-                              yshift=10,
-                          ),
-                          annotation_position="top right", row=r, col=1)
-        if is_alias and 0 < alias_f <= float(freqs_hz[-1]):
-            fig.add_vline(x=alias_f, line_dash="dot", line_color=_C["alias"],
-                          annotation=dict(
-                              text=f"alias={alias_f:.1f}Hz",
-                              font=dict(color=_C["alias"], size=10),
-                              bgcolor="rgba(0,0,0,0)",
-                              bordercolor="rgba(0,0,0,0)",
-                              yshift=28,          # offset above the dom_freq label
-                          ),
-                          annotation_position="top left", row=r, col=1)
+            fig.add_vline(
+                x=dom_freq, line_dash="dash", line_color=_C["samp"],
+                line_width=1.5,
+                annotation=dict(
+                    text=f"f={dom_freq}Hz",
+                    font=dict(color=_C["samp"], size=9,
+                              family="'IBM Plex Mono',monospace"),
+                    bgcolor=T["ANN_BG"],
+                    bordercolor=_C["samp"],
+                    borderwidth=1,
+                    borderpad=3,
+                    yshift=6,
+                ),
+                annotation_position="top right",
+                row=r, col=1,
+            )
+        if is_alias and 0 < alias_f <= float(freqs_hz[-1]) and abs(alias_f - dom_freq) > 0.5:
+            # FIX: Only draw alias line if it's meaningfully different from dominant freq
+            fig.add_vline(
+                x=alias_f, line_dash="dot", line_color=_C["alias"],
+                line_width=1.5,
+                annotation=dict(
+                    text=f"alias={alias_f:.1f}Hz",
+                    font=dict(color=_C["alias"], size=9,
+                              family="'IBM Plex Mono',monospace"),
+                    bgcolor=T["ANN_BG"],
+                    bordercolor=_C["alias"],
+                    borderwidth=1,
+                    borderpad=3,
+                    yshift=6,
+                ),
+                annotation_position="top left",
+                row=r, col=1,
+            )
 
     a = _ax()
-    fig.update_layout(**_base_layout(720))
+    lay = _base_layout(760)
+    lay["margin"] = dict(l=64, r=24, t=72, b=52)   # extra top for subplot titles
+    fig.update_layout(**lay)
     fig.update_layout(showlegend=False)
     fig.update_xaxes(title_text="Frequency (Hz)", **a)
     fig.update_yaxes(**a)
     fig.update_yaxes(title_text="Magnitude", row=1, col=1)
     fig.update_yaxes(title_text="dB",        row=2, col=1)
-    # Fix subplot title colours
+    # FIX: subplot titles colour + size
     for ann in fig.layout.annotations:
         if ann.text in ("Magnitude Spectrum", "Power Spectrum (dB)"):
-            ann.font.color = T["PTXT"]
-            ann.font.size  = 11
+            ann.font.color  = T["PTXT"]
+            ann.font.size   = 12
+            ann.font.family = "'DM Sans',sans-serif"
     st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("📐 FFT Theory & Parameters"):
@@ -798,10 +804,10 @@ with tab_filter:
 
     st.subheader("④ Noisy vs Filtered Overlay")
     fc = go.Figure()
-    noisy_line = "rgba(239,68,68,0.55)" if DARK else "rgba(239,68,68,0.40)"
     fc.add_trace(go.Scatter(x=t, y=noisy, mode="lines",
                             name=f"Noisy σ={noise_level:.1f}",
-                            line=dict(color=noisy_line, width=1)))
+                            line=dict(color=_C["noisy"], width=1, dash="dot"),
+                            opacity=0.6))
     fc.add_trace(go.Scatter(x=t, y=filtered, mode="lines",
                             name=f"Filtered M={filter_win}",
                             line=dict(color=_C["filt"], width=2.5)))
@@ -819,11 +825,16 @@ with tab_filter:
     fh.add_trace(go.Scatter(x=f_ax, y=H, mode="lines", name="|H(f)|",
                             line=dict(color=_C["samp"], width=2.4),
                             fill="tozeroy", fillcolor=fill_color(_C["samp"], FA)))
-    fh.add_hline(y=0.707, line_dash="dash", line_color=_C["cont"],
-                 annotation_text="−3 dB",
-                 annotation_font_color=_C["cont"],
-                 annotation_font_size=10,
-                 annotation_position="bottom right")
+    fh.add_hline(
+        y=0.707, line_dash="dash", line_color=_C["cont"],
+        annotation_text="−3 dB",
+        annotation_font_color=_C["cont"],
+        annotation_font_size=10,
+        annotation_bgcolor=T["ANN_BG"],
+        annotation_bordercolor=_C["cont"],
+        annotation_borderpad=3,
+        annotation_position="bottom right",
+    )
     theme_fig(fh, 320, xt="Frequency (Hz)", yt="|H(f)|")
     st.plotly_chart(fh, use_container_width=True)
 
@@ -870,8 +881,9 @@ with tab_water:
             z=zdb.T, x=tlab, y=faxw,
             colorscale=T["HEAT"], zmin=DB_FLOOR, zmax=0,
             colorbar=dict(
-                title=dict(text="dB", font=dict(color=T["PTXT"])),
-                tickfont=dict(color=T["PTXT"]),
+                title=dict(text="dB", font=dict(color=T["PTXT"], size=11)),
+                tickfont=dict(color=T["PTXT"], size=10),
+                bgcolor=T["PLEG"],
             ),
         ))
         a = _ax()
@@ -939,23 +951,31 @@ with tab_3d:
             gridcolor=T["PGRID"],
             zerolinecolor=T["PZERO"],
             color=T["PTXT"],
+            backgroundcolor=T["PPBG"],
             tickfont=dict(size=9, color=T["PTICK"]),
             title_font=dict(color=T["PTXT"], size=11),
+            showbackground=True,        # FIX: explicitly show bg so it matches theme
         )
         return dict(
-            paper_bgcolor=T["PBG"],
+            paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color=T["PTXT"], size=10, family="'IBM Plex Mono',monospace"),
             height=height,
-            margin=dict(l=0, r=0, t=50, b=0),
-            title=dict(text=title[:65], font=dict(color=T["PTXT"], size=11,
-                                                   family="'DM Sans',sans-serif"),
-                       x=0.0, xanchor="left"),
+            margin=dict(l=0, r=0, t=56, b=0),
+            title=dict(
+                text=title[:65],
+                font=dict(color=T["PTXT"], size=12, family="'DM Sans',sans-serif"),
+                x=0.0, xanchor="left",
+            ),
             transition=dict(duration=300, easing="cubic-in-out"),
-            hoverlabel=dict(bgcolor=T["PBG"], bordercolor=T["PLINE"],
-                            font=dict(color=T["PTXT"], family="'IBM Plex Mono',monospace", size=10)),
-            legend=dict(bgcolor=T["PLEG"], bordercolor=T["PLINE"], borderwidth=1,
-                        font=dict(color=T["PTXT"], size=10),
-                        x=0.0, y=1.0, xanchor="left", yanchor="top"),
+            hoverlabel=dict(
+                bgcolor=T["ANN_BG"], bordercolor=T["PLINE"],
+                font=dict(color=T["PTXT"], family="'IBM Plex Mono',monospace", size=10),
+            ),
+            legend=dict(
+                bgcolor=T["PLEG"], bordercolor=T["PLINE"], borderwidth=1,
+                font=dict(color=T["PTXT"], size=10),
+                x=0.0, y=1.0, xanchor="left", yanchor="top",
+            ),
             scene=dict(
                 bgcolor=T["PPBG"],
                 xaxis=dict(**axd),
@@ -986,7 +1006,7 @@ with tab_3d:
         samp3 = gen_signal(ts3, freq_eff, amp, signal_type, dur_eff)
         f3d.add_trace(go.Scatter3d(
             x=ts3, y=np.zeros_like(ts3), z=samp3, mode="markers",
-            marker=dict(size=4, color=_C["samp"], line=dict(color=T["PBG"], width=0.5)),
+            marker=dict(size=4, color=_C["samp"], line=dict(color=T["PPBG"], width=0.5)),
             name=f"Samples Fs={fs}Hz",
         ))
         lay = _3dl(f"3D Waveform Ribbon — {signal_type} {freq_eff} Hz")
@@ -1017,8 +1037,10 @@ with tab_3d:
             f3d  = go.Figure(go.Surface(
                 x=np.array(tl3), y=fa3[:fmi], z=Z3.T,
                 colorscale=T["SURF"], cmin=DB_FLOOR, cmax=0,
-                colorbar=dict(title=dict(text="dB", font=dict(color=T["PTXT"])),
-                              tickfont=dict(color=T["PTXT"])),
+                colorbar=dict(
+                    title=dict(text="dB", font=dict(color=T["PTXT"])),
+                    tickfont=dict(color=T["PTXT"]),
+                ),
                 contours=dict(z=dict(show=True, usecolormap=True,
                                      highlightcolor="white", project_z=True)),
                 lighting=dict(ambient=0.5, diffuse=0.8, roughness=0.5,
@@ -1038,7 +1060,7 @@ with tab_3d:
     elif d3c.startswith("③"):
         t_h  = np.linspace(0, 8 * np.pi, 6_000)
         x_h  = np.sin(t_h); y_h = np.sin(2 * t_h + np.pi / 4); z_h = t_h / (8 * np.pi)
-        proj = "rgba(148,163,184,0.28)" if DARK else "rgba(100,116,139,0.18)"
+        proj = "rgba(148,163,184,0.28)" if DARK else "rgba(100,116,139,0.22)"
         f3d  = go.Figure()
         f3d.add_trace(go.Scatter3d(x=x_h, y=y_h, z=z_h, mode="lines",
                                    line=dict(color=z_h, colorscale="Rainbow", width=4),
@@ -1069,7 +1091,7 @@ with tab_3d:
                                    name=f"Signal {freq_eff} Hz"))
         f3d.add_trace(go.Scatter3d(x=ts4, y=np.zeros_like(ts4), z=samp4, mode="markers",
                                    marker=dict(size=5, color=_C["samp"],
-                                               line=dict(color=T["PBG"], width=0.8)),
+                                               line=dict(color=T["PPBG"], width=0.8)),
                                    name=f"Samples Fs={fs}Hz"))
         if is_alias:
             alias4 = gen_signal(t4[:nt4], alias_f, amp, "Sine", dur_eff)
@@ -1157,8 +1179,11 @@ with tab_audio:
             fsg  = go.Figure(go.Heatmap(
                 z=zsg, x=ta2, y=fa2,
                 colorscale=T["HEAT"], zmin=DB_FLOOR, zmax=0,
-                colorbar=dict(title=dict(text="dB", font=dict(color=T["PTXT"])),
-                              tickfont=dict(color=T["PTXT"])),
+                colorbar=dict(
+                    title=dict(text="dB", font=dict(color=T["PTXT"], size=11)),
+                    tickfont=dict(color=T["PTXT"], size=10),
+                    bgcolor=T["PLEG"],
+                ),
             ))
             a = _ax()
             fsg.update_layout(**_base_layout(440))
