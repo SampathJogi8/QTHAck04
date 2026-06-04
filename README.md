@@ -6,7 +6,7 @@
 pip install -r requirements.txt
 streamlit run app.py
 ```
-Open your browser at **http://localhost:8501**
+Open your browser at **https://interactivedsplab.streamlit.app/**
 
 ---
 
